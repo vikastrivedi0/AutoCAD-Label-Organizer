@@ -22,7 +22,7 @@
   )
   
   ;; If we found any points, return the extents
-  (if (and (!= minx 1e99) (!= miny 1e99) (!= maxx -1e99) (!= maxy -1e99))
+  (if (and (/= minx 1e99) (/= miny 1e99) (/= maxx -1e99) (/= maxy -1e99))
     (list (list minx miny 0.0) (list maxx maxy 0.0))
     nil
   )
