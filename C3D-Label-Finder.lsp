@@ -2,32 +2,65 @@
 ;;; This script detects overlapping Civil 3D Pipe and Structure labels and deletes them.
 ;;; Usage: Load the script and run the command C3D-LABEL-DELETE-OVERLAP
 
+;; Function to get label extents
+(defun get-label-extents (ent / entdata pt1 pt2 pt3 pt4 minx miny maxx maxy)
+  (setq entdata (entget ent))
+  (setq minx 1e99 miny 1e99 maxx -1e99 maxy -1e99)
+  
+  ;; Iterate through all points in the entity data
+  (while entdata
+    (if (= 10 (caar entdata))  ; Look for any point data (group code 10)
+      (progn
+        (setq pt (cdar entdata))
+        (if (< (car pt) minx) (setq minx (car pt)))
+        (if (< (cadr pt) miny) (setq miny (cadr pt)))
+        (if (> (car pt) maxx) (setq maxx (car pt)))
+        (if (> (cadr pt) maxy) (setq maxy (cadr pt)))
+      )
+    )
+    (setq entdata (cdr entdata))
+  )
+  
+  ;; If we found any points, return the extents
+  (if (and (!= minx 1e99) (!= miny 1e99) (!= maxx -1e99) (!= maxy -1e99))
+    (list (list minx miny 0.0) (list maxx maxy 0.0))
+    nil
+  )
+)
+
 ;; Function to process a single label
-(defun process-label (ent mtextData / entdata insertion)
-  (if (and ent (not (null ent)) (setq entdata (entget ent)))  ; Validate entity
+(defun process-label (ent mtextData / extents)
+  (if (and ent (not (null ent)) (entget ent))  ; Validate entity
     (progn
-      (setq insertion (cdr (assoc 10 entdata)))  ; Insertion point
-      (if insertion
+      (setq extents (get-label-extents ent))
+      (if extents
+        (setq mtextData 
+          (cons 
+            (list 
+              ent 
+              (car extents)    ; Min point
+              (cadr extents)   ; Max point
+            )
+            mtextData
+          )
+        )
         (progn
-          ;; Get the bounding box from entity data
-          (setq width 10.0)   ; Default width in drawing units
-          (setq height 5.0)   ; Default height in drawing units
+          ;; Fallback to using entity bounding box
+          (command "._zoom" "_object" ent "")
+          (setq pt1 (getvar "viewctr"))
+          (setq size (getvar "viewsize"))
           (setq mtextData 
             (cons 
               (list 
                 ent 
-                insertion  ; Min point
-                (list     ; Max point
-                  (+ (car insertion) width)
-                  (+ (cadr insertion) height)
-                  (caddr insertion)
-                )
+                (list (- (car pt1) (/ size 2)) (- (cadr pt1) (/ size 2)) 0.0)  ; Min point
+                (list (+ (car pt1) (/ size 2)) (+ (cadr pt1) (/ size 2)) 0.0)  ; Max point
               )
               mtextData
             )
           )
+          (command "._zoom" "_previous")
         )
-        (princ (strcat "\nWarning: Could not get insertion point for label " (vl-princ-to-string ent)))
       )
     )
     (princ (strcat "\nWarning: Invalid entity encountered"))
@@ -123,7 +156,7 @@
       
       (setq deleted-count 0)
       (foreach ent overlapList
-        (if (and ent (entget ent))  ; Verify entity still exists
+        (if (and ent (entget ent))  ; Verify entity still exist
           (progn
             (entdel ent)
             (setq deleted-count (1+ deleted-count))
