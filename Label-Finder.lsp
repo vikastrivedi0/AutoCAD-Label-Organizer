@@ -2,7 +2,7 @@
 ;;; This script detects overlapping MTEXT labels and deletes them.
 ;;; Usage: Load the script and run the command ACAD-MTEXT-DELETE-OVERLAP
 
-(defun c:ACAD-MTEXT-DELETE-OVERLAP (/ ss ent obj mtextData overlapList)
+(defun c:ACAD-MTEXT-DELETE-OVERLAP (/ ss ent obj mtextData overlapList count)
   (if (setq ss (ssget "_X" '((0 . "MTEXT"))))
     (progn
       (setq mtextData '())
@@ -10,31 +10,50 @@
 
       (repeat (setq count (sslength ss))
         (setq ent (ssname ss (setq count (1- count))))
-        (setq obj (vlax-ename->vla-object ent))
-        (setq tb (textbox ent))
-        (setq mtextData (cons (list ent (car tb) (cadr tb)) mtextData))
+        (if (and ent (not (null ent)) (entget ent))  ; Validate entity
+          (progn
+            (setq obj (vlax-ename->vla-object ent))
+            (if (and obj (vlax-object-p obj))  ; Validate VLA object
+              (progn
+                (setq tb (vl-catch-all-apply 'textbox (list ent)))  ; Safe textbox call
+                (if (and tb (not (vl-catch-all-error-p tb)))  ; Check if textbox call succeeded
+                  (setq mtextData (cons (list ent (car tb) (cadr tb)) mtextData))
+                  (princ (strcat "\nWarning: Could not get textbox for entity " (vl-princ-to-string ent)))
+                )
+              )
+              (princ (strcat "\nWarning: Could not create VLA object for entity " (vl-princ-to-string ent)))
+            )
+          )
+          (princ (strcat "\nWarning: Invalid entity encountered at index " (vl-princ-to-string count)))
+        )
       )
 
       ;; Function to check if two bounding boxes overlap
       (defun check-overlap (data1 data2 / minPt1 maxPt1 minPt2 maxPt2)
-        (setq minPt1 (cadr data1)
-              maxPt1 (caddr data1)
-              minPt2 (cadr data2)
-              maxPt2 (caddr data2))
-
-        (not (or (< (car maxPt1) (car minPt2))
-                 (< (car maxPt2) (car minPt1))
-                 (< (cadr maxPt1) (cadr minPt2))
-                 (< (cadr maxPt2) (cadr minPt1))
+        (if (and data1 data2 (cadr data1) (caddr data1) (cadr data2) (caddr data2))  ; Validate data
+          (progn
+            (setq minPt1 (cadr data1)
+                  maxPt1 (caddr data1)
+                  minPt2 (cadr data2)
+                  maxPt2 (caddr data2))
+            (not (or (< (car maxPt1) (car minPt2))
+                     (< (car maxPt2) (car minPt1))
+                     (< (cadr maxPt1) (cadr minPt2))
+                     (< (cadr maxPt2) (cadr minPt1))
+                )
             )
+          )
+          nil  ; Return nil if data is invalid
         )
       )
 
-      ;; Check for overlaps
+      ;; Check for overlaps with error handling
       (foreach data1 mtextData
         (foreach data2 mtextData
           (if (and (not (eq (car data1) (car data2)))
-                   (check-overlap data1 data2))
+                   (check-overlap data1 data2)
+                   (entget (car data1))  ; Verify entities still exist
+                   (entget (car data2)))
             (progn
               (setq overlapList (cons (car data1) overlapList))
               (setq overlapList (cons (car data2) overlapList))
@@ -52,14 +71,20 @@
       ;; Remove duplicates from overlap list
       (setq overlapList (LM:remove-duplicates overlapList))
 
-      ;; Delete overlapping labels
-      (print (strcat "\nDeleting " (itoa (length overlapList)) " overlapping MTEXT labels..."))
-
+      ;; Delete overlapping labels with validation
+      (print (strcat "\nFound " (itoa (length overlapList)) " overlapping MTEXT labels."))
+      
+      (setq deleted-count 0)
       (foreach ent overlapList
-        (entdel ent)
+        (if (and ent (entget ent))  ; Verify entity still exists
+          (progn
+            (entdel ent)
+            (setq deleted-count (1+ deleted-count))
+          )
+        )
       )
 
-      (print (strcat "\nCompleted. Deleted " (itoa (length overlapList)) " overlapping MTEXT labels."))
+      (print (strcat "\nCompleted. Successfully deleted " (itoa deleted-count) " overlapping MTEXT labels."))
     )
     (print "\nNo MTEXT objects found in the drawing.")
   )
