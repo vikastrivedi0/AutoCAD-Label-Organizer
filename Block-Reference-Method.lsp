@@ -31,35 +31,54 @@
 
 ;; Function to check if two blocks overlap
 (defun check-block-overlap (data1 data2 / min1 max1 min2 max2 center1 center2 dist threshold)
-  (setq min1 (car data1)
-        max1 (cadr data1)
-        center1 (caddr data1)
-        min2 (car data2)
-        max2 (cadr data2)
-        center2 (caddr data2))
-  
-  ;; Calculate distance between block centers
-  (setq dist (sqrt (+ (expt (- (car center2) (car center1)) 2)
-                     (expt (- (cadr center2) (cadr center1)) 2))))
-  
-  ;; Calculate average block size for threshold
-  (setq size1 (sqrt (+ (expt (- (car max1) (car min1)) 2)
-                      (expt (- (cadr max1) (cadr min1)) 2))))
-  (setq size2 (sqrt (+ (expt (- (car max2) (car min2)) 2)
-                      (expt (- (cadr max2) (cadr min2)) 2))))
-  
-  ;; Set threshold to half of average block size
-  (setq threshold (* 0.5 (/ (+ size1 size2) 2)))
-  
-  ;; Debug output
-  (princ (strcat "\nComparing blocks:"))
-  (princ (strcat "\nBlock 1 center: " (vl-princ-to-string center1)))
-  (princ (strcat "\nBlock 2 center: " (vl-princ-to-string center2)))
-  (princ (strcat "\nDistance: " (rtos dist)))
-  (princ (strcat "\nThreshold: " (rtos threshold)))
-  
-  ;; Return true if distance is less than threshold
-  (< dist threshold)
+  ;; Debug output for input data
+  (princ "\nData1: ")
+  (princ (vl-princ-to-string data1))
+  (princ "\nData2: ")
+  (princ (vl-princ-to-string data2))
+
+  (if (and data1 data2)
+    (progn
+      (setq min1 (car data1)
+            max1 (cadr data1)
+            center1 (caddr data1)
+            min2 (car data2)
+            max2 (cadr data2)
+            center2 (caddr data2))
+      
+      ;; Validate center points
+      (if (and center1 center2 
+               (listp center1) (listp center2)
+               (>= (length center1) 2) (>= (length center2) 2))
+        (progn
+          ;; Calculate distance between block centers
+          (setq dist (sqrt (+ (expt (- (car center2) (car center1)) 2)
+                             (expt (- (cadr center2) (cadr center1)) 2))))
+          
+          ;; Calculate average block size for threshold
+          (setq size1 (sqrt (+ (expt (- (car max1) (car min1)) 2)
+                              (expt (- (cadr max1) (cadr min1)) 2))))
+          (setq size2 (sqrt (+ (expt (- (car max2) (car min2)) 2)
+                              (expt (- (cadr max2) (cadr min2)) 2))))
+          
+          ;; Set threshold to half of average block size
+          (setq threshold (* 0.5 (/ (+ size1 size2) 2)))
+          
+          ;; Debug output
+          (princ (strcat "\nComparing blocks:"))
+          (princ (strcat "\nBlock 1 center: " (vl-princ-to-string center1)))
+          (princ (strcat "\nBlock 2 center: " (vl-princ-to-string center2)))
+          (princ (strcat "\nDistance: " (rtos dist)))
+          (princ (strcat "\nThreshold: " (rtos threshold)))
+          
+          ;; Return true if distance is less than threshold
+          (< dist threshold)
+        )
+        nil  ; Return nil if center points are invalid
+      )
+    )
+    nil  ; Return nil if input data is invalid
+  )
 )
 
 ;; Function to process a single label
@@ -70,9 +89,9 @@
       (if block-data
         (progn
           (princ (strcat "\nProcessed label extents: "))
-          (princ (car block-data))
+          (princ (vl-princ-to-string (car block-data)))
           (princ " to ")
-          (princ (cadr block-data))
+          (princ (vl-princ-to-string (cadr block-data)))
           (setq mtextData 
             (cons 
               (list 
