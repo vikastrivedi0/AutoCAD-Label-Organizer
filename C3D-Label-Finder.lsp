@@ -231,7 +231,8 @@
       (if (> (length overlapList) 0)
         (progn
           (princ "\nPress Enter to delete overlapping labels, or Esc to cancel...")
-          (if (= 1 (getstring))  ; User pressed Enter
+          (setq user-input (getstring))
+          (if (= user-input "")  ; Check for empty string (Enter key)
             (progn
               (setq deleted-count 0)
               (foreach ent overlapList
