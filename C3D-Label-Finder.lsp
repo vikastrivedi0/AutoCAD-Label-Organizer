@@ -2,66 +2,32 @@
 ;;; This script detects overlapping Civil 3D Pipe and Structure labels and deletes them.
 ;;; Usage: Load the script and run the command C3D-LABEL-DELETE-OVERLAP
 
-;; Load ActiveX support
-(vl-load-com)
-
 ;; Function to process a single label
-(defun process-label (ent mtextData / obj bbox)
-  (if (and ent (not (null ent)) (entget ent))  ; Validate entity
+(defun process-label (ent mtextData / entdata insertion)
+  (if (and ent (not (null ent)) (setq entdata (entget ent)))  ; Validate entity
     (progn
-      (setq obj (vlax-ename->vla-object ent))
-      (if (and obj (vlax-object-p obj))
+      (setq insertion (cdr (assoc 10 entdata)))  ; Insertion point
+      (if insertion
         (progn
-          ;; Try to get the label's bounding box using GetBoundingBox method
-          (setq bbox (vl-catch-all-apply 
-                     '(lambda () 
-                        (vlax-safearray->list 
-                          (vlax-variant-value 
-                            (vlax-invoke-method obj 'GetBoundingBox 'minPoint 'maxPoint))))))
-          (if (and bbox (not (vl-catch-all-error-p bbox)))
-            (setq mtextData 
-              (cons 
-                (list 
-                  ent 
-                  (car bbox)   ; Min point
-                  (cadr bbox)  ; Max point
+          ;; Get the bounding box from entity data
+          (setq width 10.0)   ; Default width in drawing units
+          (setq height 5.0)   ; Default height in drawing units
+          (setq mtextData 
+            (cons 
+              (list 
+                ent 
+                insertion  ; Min point
+                (list     ; Max point
+                  (+ (car insertion) width)
+                  (+ (cadr insertion) height)
+                  (caddr insertion)
                 )
-                mtextData
               )
-            )
-            ;; Fallback to entity data if GetBoundingBox fails
-            (progn
-              (setq entdata (entget ent))
-              (if entdata
-                (progn
-                  (setq insertion (cdr (assoc 10 entdata)))  ; Insertion point
-                  ;; Estimate a default size if we can't get actual dimensions
-                  (setq width 10.0)  ; Default width in drawing units
-                  (setq height 5.0)  ; Default height in drawing units
-                  (if insertion
-                    (setq mtextData 
-                      (cons 
-                        (list 
-                          ent 
-                          insertion  ; Min point
-                          (list     ; Max point
-                            (+ (car insertion) width)
-                            (+ (cadr insertion) height)
-                            (caddr insertion)
-                          )
-                        )
-                        mtextData
-                      )
-                    )
-                    (princ (strcat "\nWarning: Could not get insertion point for label " (vl-princ-to-string ent)))
-                  )
-                )
-                (princ (strcat "\nWarning: Could not get entity data for " (vl-princ-to-string ent)))
-              )
+              mtextData
             )
           )
         )
-        (princ (strcat "\nWarning: Could not create object for label " (vl-princ-to-string ent)))
+        (princ (strcat "\nWarning: Could not get insertion point for label " (vl-princ-to-string ent)))
       )
     )
     (princ (strcat "\nWarning: Invalid entity encountered"))
@@ -94,9 +60,8 @@
   (reverse rtn)
 )
 
-(defun c:C3D-LABEL-DELETE-OVERLAP (/ ss1 ss2 ent obj mtextData overlapList count)
-  ;; Initialize ActiveX
-  (vl-load-com)
+(defun c:C3D-LABEL-DELETE-OVERLAP (/ ss1 ss2 ent mtextData overlapList count)
+  (princ "\nSearching for Civil 3D labels...")
   
   ;; Get both Pipe Labels and Structure Labels using the correct entity types
   (setq ss1 (ssget "_X" '((0 . "AECC_PIPE_LABEL")))
@@ -110,6 +75,7 @@
       ;; Process Pipe Labels
       (if ss1
         (progn
+          (princ (strcat "\nProcessing " (itoa (sslength ss1)) " Pipe Labels..."))
           (setq count (sslength ss1))
           (while (> count 0)
             (setq count (1- count))
@@ -122,6 +88,7 @@
       ;; Process Structure Labels
       (if ss2
         (progn
+          (princ (strcat "\nProcessing " (itoa (sslength ss2)) " Structure Labels..."))
           (setq count (sslength ss2))
           (while (> count 0)
             (setq count (1- count))
@@ -131,6 +98,8 @@
         )
       )
 
+      (princ "\nChecking for overlaps...")
+      
       ;; Check for overlaps with error handling
       (foreach data1 mtextData
         (foreach data2 mtextData
