@@ -30,8 +30,9 @@
 
 ;; Function to calculate area of a bounding box
 (defun calc-area (minPt maxPt)
-  (* (- (car maxPt) (car minPt))
-     (- (cadr maxPt) (cadr minPt)))
+  (setq width (abs (- (car maxPt) (car minPt))))
+  (setq height (abs (- (cadr maxPt) (cadr minPt))))
+  (* width height)
 )
 
 ;; Function to calculate overlap area
@@ -43,8 +44,8 @@
   
   (if (and (< overlap-minx overlap-maxx)
            (< overlap-miny overlap-maxy))
-    (* (- overlap-maxx overlap-minx)
-       (- overlap-maxy overlap-miny))
+    (* (abs (- overlap-maxx overlap-minx))
+       (abs (- overlap-maxy overlap-miny)))
     0.0
   )
 )
@@ -61,16 +62,23 @@
       ;; Calculate areas
       (setq area1 (calc-area minPt1 maxPt1))
       (setq area2 (calc-area minPt2 maxPt2))
-      (setq overlap-area (calc-overlap-area minPt1 maxPt1 minPt2 maxPt2))
       
-      ;; Get the smaller of the two areas
-      (setq min-area (min area1 area2))
-      
-      ;; Set overlap threshold to 50% of the smaller label
-      (setq overlap-threshold (* min-area 0.5))
-      
-      ;; Return true if overlap area is significant
-      (> overlap-area overlap-threshold)
+      ;; Only proceed if both areas are valid (non-zero)
+      (if (and (> area1 0.0) (> area2 0.0))
+        (progn
+          (setq overlap-area (calc-overlap-area minPt1 maxPt1 minPt2 maxPt2))
+          (setq min-area (min area1 area2))
+          (setq overlap-threshold (* min-area 0.75))  ; Increased threshold to 75%
+          
+          ;; Debug output
+          (princ (strcat "\nComparing labels - Areas: " (rtos area1) " and " (rtos area2)))
+          (princ (strcat "\nOverlap area: " (rtos overlap-area)))
+          (princ (strcat "\nThreshold: " (rtos overlap-threshold)))
+          
+          (> overlap-area overlap-threshold)
+        )
+        nil  ; Return nil if either area is zero
+      )
     )
     nil  ; Return nil if data is invalid
   )
@@ -82,14 +90,20 @@
     (progn
       (setq extents (get-label-extents ent))
       (if extents
-        (setq mtextData 
-          (cons 
-            (list 
-              ent 
-              (car extents)    ; Min point
-              (cadr extents)   ; Max point
+        (progn
+          (princ (strcat "\nProcessed label with extents: "))
+          (princ (car extents))
+          (princ " to ")
+          (princ (cadr extents))
+          (setq mtextData 
+            (cons 
+              (list 
+                ent 
+                (car extents)    ; Min point
+                (cadr extents)   ; Max point
+              )
+              mtextData
             )
-            mtextData
           )
         )
         (progn
@@ -170,9 +184,13 @@
                    (entget (car data1))                 ; Verify entities still exist
                    (entget (car data2)))
             (progn
-              ;; Only add the second label to the overlap list
-              ;; This way we keep one label and remove the other
-              (setq overlapList (cons (car data2) overlapList))
+              ;; Only add the second label to the overlap list if it's not already there
+              (if (not (member (car data2) overlapList))
+                (progn
+                  (princ (strcat "\nFound overlapping labels"))
+                  (setq overlapList (cons (car data2) overlapList))
+                )
+              )
             )
           )
         )
@@ -184,17 +202,27 @@
       ;; Delete overlapping labels with validation
       (print (strcat "\nFound " (itoa (length overlapList)) " overlapping Civil 3D labels."))
       
-      (setq deleted-count 0)
-      (foreach ent overlapList
-        (if (and ent (entget ent))  ; Verify entity still exist
-          (progn
-            (entdel ent)
-            (setq deleted-count (1+ deleted-count))
+      (if (> (length overlapList) 0)
+        (progn
+          (princ "\nPress Enter to delete overlapping labels, or Esc to cancel...")
+          (if (= 1 (getstring))  ; User pressed Enter
+            (progn
+              (setq deleted-count 0)
+              (foreach ent overlapList
+                (if (and ent (entget ent))  ; Verify entity still exist
+                  (progn
+                    (entdel ent)
+                    (setq deleted-count (1+ deleted-count))
+                  )
+                )
+              )
+              (print (strcat "\nCompleted. Successfully deleted " (itoa deleted-count) " overlapping Civil 3D labels."))
+            )
+            (print "\nOperation cancelled by user.")
           )
         )
+        (print "\nNo overlapping labels found.")
       )
-
-      (print (strcat "\nCompleted. Successfully deleted " (itoa deleted-count) " overlapping Civil 3D labels."))
     )
     (print "\nNo Civil 3D Pipe or Structure labels found in the drawing.")
   )
