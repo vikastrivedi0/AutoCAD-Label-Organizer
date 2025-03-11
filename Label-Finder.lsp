@@ -2,7 +2,13 @@
 ;;; This script detects overlapping MTEXT labels and deletes them.
 ;;; Usage: Load the script and run the command ACAD-MTEXT-DELETE-OVERLAP
 
+;; Load ActiveX support
+(vl-load-com)
+
 (defun c:ACAD-MTEXT-DELETE-OVERLAP (/ ss ent obj mtextData overlapList count)
+  ;; Initialize ActiveX
+  (vl-load-com)
+  
   (if (setq ss (ssget "_X" '((0 . "MTEXT"))))
     (progn
       (setq mtextData '())
@@ -12,16 +18,39 @@
         (setq ent (ssname ss (setq count (1- count))))
         (if (and ent (not (null ent)) (entget ent))  ; Validate entity
           (progn
-            (setq obj (vlax-ename->vla-object ent))
-            (if (and obj (vlax-object-p obj))  ; Validate VLA object
+            ;; Try to get textbox directly if ActiveX is not available
+            (setq tb (vl-catch-all-apply 'textbox (list ent)))
+            (if (and tb (not (vl-catch-all-error-p tb)))
+              (setq mtextData (cons (list ent (car tb) (cadr tb)) mtextData))
+              ;; If textbox fails, try to get bounding box from entity data
               (progn
-                (setq tb (vl-catch-all-apply 'textbox (list ent)))  ; Safe textbox call
-                (if (and tb (not (vl-catch-all-error-p tb)))  ; Check if textbox call succeeded
-                  (setq mtextData (cons (list ent (car tb) (cadr tb)) mtextData))
-                  (princ (strcat "\nWarning: Could not get textbox for entity " (vl-princ-to-string ent)))
+                (setq entdata (entget ent))
+                (if entdata
+                  (progn
+                    (setq insertion (cdr (assoc 10 entdata)))  ; Insertion point
+                    (setq width (cdr (assoc 41 entdata)))      ; Width
+                    (setq height (cdr (assoc 43 entdata)))     ; Height
+                    (if (and insertion width height)
+                      (setq mtextData 
+                        (cons 
+                          (list 
+                            ent 
+                            insertion  ; Min point
+                            (list     ; Max point
+                              (+ (car insertion) width)
+                              (+ (cadr insertion) height)
+                              (caddr insertion)
+                            )
+                          )
+                          mtextData
+                        )
+                      )
+                      (princ (strcat "\nWarning: Could not get dimensions for entity " (vl-princ-to-string ent)))
+                    )
+                  )
+                  (princ (strcat "\nWarning: Could not get entity data for " (vl-princ-to-string ent)))
                 )
               )
-              (princ (strcat "\nWarning: Could not create VLA object for entity " (vl-princ-to-string ent)))
             )
           )
           (princ (strcat "\nWarning: Invalid entity encountered at index " (vl-princ-to-string count)))
