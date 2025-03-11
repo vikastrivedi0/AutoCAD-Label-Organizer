@@ -68,7 +68,20 @@
                           (nth (rem (1+ i) 4) corners1)
                           (nth j corners2)
                           (nth (rem (1+ j) 4) corners2))
-        (return-from 'polygons-overlap T)
+        (progn
+          (princ "\nIntersection found between segments:")
+          (princ (strcat "\n  Segment 1: (" 
+                        (rtos (car (nth i corners1)) 2 2) ", "
+                        (rtos (cadr (nth i corners1)) 2 2) ") to ("
+                        (rtos (car (nth (rem (1+ i) 4) corners1)) 2 2) ", "
+                        (rtos (cadr (nth (rem (1+ i) 4) corners1)) 2 2) ")"))
+          (princ (strcat "\n  Segment 2: (" 
+                        (rtos (car (nth j corners2)) 2 2) ", "
+                        (rtos (cadr (nth j corners2)) 2 2) ") to ("
+                        (rtos (car (nth (rem (1+ j) 4) corners2)) 2 2) ", "
+                        (rtos (cadr (nth (rem (1+ j) 4) corners2)) 2 2) ")"))
+          T
+        )
       )
       (setq j (1+ j))
     )
@@ -98,13 +111,22 @@
   (princ "\n=== Debug Information ===")
   (princ "\nChecking overlap between two labels:")
   (princ "\nLabel 1 corners:")
-  (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (get-first-n data1 4))
+  (foreach pt (car data1)
+    (princ (strcat "\n  Point: (" 
+                   (rtos (car pt) 2 2) ", "
+                   (rtos (cadr pt) 2 2) ", "
+                   (rtos (caddr pt) 2 2) ")")))
+  
   (princ "\nLabel 2 corners:")
-  (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (get-first-n data2 4))
+  (foreach pt (car data2)
+    (princ (strcat "\n  Point: (" 
+                   (rtos (car pt) 2 2) ", "
+                   (rtos (cadr pt) 2 2) ", "
+                   (rtos (caddr pt) 2 2) ")")))
   
   ;; Get corners (first 4 elements, excluding insertion point which is last)
-  (setq corners1 (get-first-n data1 4)
-        corners2 (get-first-n data2 4))
+  (setq corners1 (car data1)
+        corners2 (car data2))
   
   ;; Check for overlap
   (setq result (polygons-overlap corners1 corners2))
@@ -123,7 +145,11 @@
       (if block-data
         (progn
           (princ "\nProcessed label corners:")
-          (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (get-first-n block-data 4))
+          (foreach pt (get-first-n block-data 4)
+            (princ (strcat "\n  (" 
+                          (rtos (car pt) 2 2) ", "
+                          (rtos (cadr pt) 2 2) ", "
+                          (rtos (caddr pt) 2 2) ")")))
           (setq mtextData 
             (cons 
               (list 
