@@ -80,19 +80,31 @@
       (point-in-polygon (nth 0 corners2) corners1))
 )
 
+;; Function to get first n elements of a list
+(defun get-first-n (lst n / result count)
+  (setq result '()
+        count 0)
+  (while (and lst (< count n))
+    (setq result (append result (list (car lst))))
+    (setq lst (cdr lst))
+    (setq count (1+ count))
+  )
+  result
+)
+
 ;; Function to check if two blocks overlap
 (defun check-block-overlap (data1 data2 / corners1 corners2)
   ;; Debug output
   (princ "\n=== Debug Information ===")
   (princ "\nChecking overlap between two labels:")
   (princ "\nLabel 1 corners:")
-  (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (butlast data1))
+  (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (get-first-n data1 4))
   (princ "\nLabel 2 corners:")
-  (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (butlast data2))
+  (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (get-first-n data2 4))
   
-  ;; Get corners (exclude insertion point which is last element)
-  (setq corners1 (butlast data1)
-        corners2 (butlast data2))
+  ;; Get corners (first 4 elements, excluding insertion point which is last)
+  (setq corners1 (get-first-n data1 4)
+        corners2 (get-first-n data2 4))
   
   ;; Check for overlap
   (setq result (polygons-overlap corners1 corners2))
@@ -111,7 +123,7 @@
       (if block-data
         (progn
           (princ "\nProcessed label corners:")
-          (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (butlast block-data))
+          (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (get-first-n block-data 4))
           (setq mtextData 
             (cons 
               (list 
