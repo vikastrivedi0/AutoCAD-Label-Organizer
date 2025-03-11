@@ -5,6 +5,95 @@
 ;; Load ActiveX support
 (vl-load-com)
 
+;; Function to process a single label
+(defun process-label (ent mtextData / obj bbox)
+  (if (and ent (not (null ent)) (entget ent))  ; Validate entity
+    (progn
+      (setq obj (vlax-ename->vla-object ent))
+      (if (and obj (vlax-object-p obj))
+        (progn
+          ;; Try to get the label's bounding box using GetBoundingBox method
+          (setq bbox (vl-catch-all-apply 
+                     '(lambda () 
+                        (vlax-safearray->list 
+                          (vlax-variant-value 
+                            (vlax-invoke-method obj 'GetBoundingBox 'minPoint 'maxPoint))))))
+          (if (and bbox (not (vl-catch-all-error-p bbox)))
+            (setq mtextData 
+              (cons 
+                (list 
+                  ent 
+                  (car bbox)   ; Min point
+                  (cadr bbox)  ; Max point
+                )
+                mtextData
+              )
+            )
+            ;; Fallback to entity data if GetBoundingBox fails
+            (progn
+              (setq entdata (entget ent))
+              (if entdata
+                (progn
+                  (setq insertion (cdr (assoc 10 entdata)))  ; Insertion point
+                  ;; Estimate a default size if we can't get actual dimensions
+                  (setq width 10.0)  ; Default width in drawing units
+                  (setq height 5.0)  ; Default height in drawing units
+                  (if insertion
+                    (setq mtextData 
+                      (cons 
+                        (list 
+                          ent 
+                          insertion  ; Min point
+                          (list     ; Max point
+                            (+ (car insertion) width)
+                            (+ (cadr insertion) height)
+                            (caddr insertion)
+                          )
+                        )
+                        mtextData
+                      )
+                    )
+                    (princ (strcat "\nWarning: Could not get insertion point for label " (vl-princ-to-string ent)))
+                  )
+                )
+                (princ (strcat "\nWarning: Could not get entity data for " (vl-princ-to-string ent)))
+              )
+            )
+          )
+        )
+        (princ (strcat "\nWarning: Could not create object for label " (vl-princ-to-string ent)))
+      )
+    )
+    (princ (strcat "\nWarning: Invalid entity encountered"))
+  )
+  mtextData  ; Return the updated mtextData
+)
+
+;; Function to check if two bounding boxes overlap
+(defun check-overlap (data1 data2 / minPt1 maxPt1 minPt2 maxPt2)
+  (if (and data1 data2 (cadr data1) (caddr data1) (cadr data2) (caddr data2))  ; Validate data
+    (progn
+      (setq minPt1 (cadr data1)
+            maxPt1 (caddr data1)
+            minPt2 (cadr data2)
+            maxPt2 (caddr data2))
+      (not (or (< (car maxPt1) (car minPt2))
+               (< (car maxPt2) (car minPt1))
+               (< (cadr maxPt1) (cadr minPt2))
+               (< (cadr maxPt2) (cadr minPt1))
+          )
+      )
+    )
+    nil  ; Return nil if data is invalid
+  )
+)
+
+;; Function to remove duplicates from a list (by Lee Mac)
+(defun LM:remove-duplicates (lst / rtn)
+  (foreach itm lst (if (not (member itm rtn)) (setq rtn (cons itm rtn))))
+  (reverse rtn)
+)
+
 (defun c:C3D-LABEL-DELETE-OVERLAP (/ ss1 ss2 ent obj mtextData overlapList count)
   ;; Initialize ActiveX
   (vl-load-com)
@@ -25,7 +114,7 @@
           (while (> count 0)
             (setq count (1- count))
             (setq ent (ssname ss1 count))
-            (process-label ent mtextData)
+            (setq mtextData (process-label ent mtextData))
           )
         )
       )
@@ -37,90 +126,8 @@
           (while (> count 0)
             (setq count (1- count))
             (setq ent (ssname ss2 count))
-            (process-label ent mtextData)
+            (setq mtextData (process-label ent mtextData))
           )
-        )
-      )
-
-      ;; Function to process a single label
-      (defun process-label (ent mtextData / obj bbox)
-        (if (and ent (not (null ent)) (entget ent))  ; Validate entity
-          (progn
-            (setq obj (vlax-ename->vla-object ent))
-            (if (and obj (vlax-object-p obj))
-              (progn
-                ;; Try to get the label's bounding box using GetBoundingBox method
-                (setq bbox (vl-catch-all-apply 
-                           '(lambda () 
-                              (vlax-safearray->list 
-                                (vlax-variant-value 
-                                  (vlax-invoke-method obj 'GetBoundingBox 'minPoint 'maxPoint))))))
-                (if (and bbox (not (vl-catch-all-error-p bbox)))
-                  (setq mtextData 
-                    (cons 
-                      (list 
-                        ent 
-                        (car bbox)   ; Min point
-                        (cadr bbox)  ; Max point
-                      )
-                      mtextData
-                    )
-                  )
-                  ;; Fallback to entity data if GetBoundingBox fails
-                  (progn
-                    (setq entdata (entget ent))
-                    (if entdata
-                      (progn
-                        (setq insertion (cdr (assoc 10 entdata)))  ; Insertion point
-                        ;; Estimate a default size if we can't get actual dimensions
-                        (setq width 10.0)  ; Default width in drawing units
-                        (setq height 5.0)  ; Default height in drawing units
-                        (if insertion
-                          (setq mtextData 
-                            (cons 
-                              (list 
-                                ent 
-                                insertion  ; Min point
-                                (list     ; Max point
-                                  (+ (car insertion) width)
-                                  (+ (cadr insertion) height)
-                                  (caddr insertion)
-                                )
-                              )
-                              mtextData
-                            )
-                          )
-                          (princ (strcat "\nWarning: Could not get insertion point for label " (vl-princ-to-string ent)))
-                        )
-                      )
-                      (princ (strcat "\nWarning: Could not get entity data for " (vl-princ-to-string ent)))
-                    )
-                  )
-                )
-              )
-              (princ (strcat "\nWarning: Could not create object for label " (vl-princ-to-string ent)))
-            )
-          )
-          (princ (strcat "\nWarning: Invalid entity encountered"))
-        )
-      )
-
-      ;; Function to check if two bounding boxes overlap
-      (defun check-overlap (data1 data2 / minPt1 maxPt1 minPt2 maxPt2)
-        (if (and data1 data2 (cadr data1) (caddr data1) (cadr data2) (caddr data2))  ; Validate data
-          (progn
-            (setq minPt1 (cadr data1)
-                  maxPt1 (caddr data1)
-                  minPt2 (cadr data2)
-                  maxPt2 (caddr data2))
-            (not (or (< (car maxPt1) (car minPt2))
-                     (< (car maxPt2) (car minPt1))
-                     (< (cadr maxPt1) (cadr minPt2))
-                     (< (cadr maxPt2) (cadr minPt1))
-                )
-            )
-          )
-          nil  ; Return nil if data is invalid
         )
       )
 
@@ -137,12 +144,6 @@
             )
           )
         )
-      )
-
-      ;; Function to remove duplicates from a list (by Lee Mac)
-      (defun LM:remove-duplicates (lst / rtn)
-        (foreach itm lst (if (not (member itm rtn)) (setq rtn (cons itm rtn))))
-        (reverse rtn)
       )
 
       ;; Remove duplicates from overlap list
