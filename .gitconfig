@@ -1,0 +1,33 @@
+[core]
+    autocrlf = true
+    safecrlf = true
+    editor = notepad
+    whitespace = cr-at-eol
+    excludesfile = .gitignore
+
+[color]
+    ui = auto
+
+[merge]
+    tool = vimdiff
+
+[diff]
+    tool = vimdiff
+
+[alias]
+    st = status
+    co = checkout
+    br = branch
+    ci = commit
+    hist = log --pretty=format:'%h %ad | %s%d [%an]' --graph --date=short
+
+[pull]
+    rebase = false
+
+[init]
+    defaultBranch = main
+
+[user]
+    # Remember to configure your user info:
+    # git config --global user.name "Your Name"
+    # git config --global user.email "your.email@example.com" 
