@@ -17,68 +17,90 @@
   (list insertion-pt rotation scale-x scale-y)
 )
 
-;; Function to get block extents
-(defun get-block-extents (ent / block-data min-pt max-pt)
+;; Function to get block extents with all four corners
+(defun get-block-extents (ent / block-data min-pt max-pt width height)
   (command "._zoom" "_object" ent "")
   (setq block-data (get-block-data ent))
   (setq min-pt (getvar "viewctr"))
-  (setq max-pt (list (+ (car min-pt) (getvar "viewsize"))
-                     (+ (cadr min-pt) (getvar "viewsize"))
+  (setq width (getvar "viewsize"))
+  (setq height (getvar "viewsize"))
+  (setq max-pt (list (+ (car min-pt) width)
+                     (+ (cadr min-pt) height)
                      0.0))
+  
+  ;; Calculate all four corners
+  (setq bottom-left min-pt
+        bottom-right (list (car max-pt) (cadr min-pt) 0.0)
+        top-right max-pt
+        top-left (list (car min-pt) (cadr max-pt) 0.0))
+  
   (command "._zoom" "_previous")
-  (list min-pt max-pt (car block-data))  ; Return min point, max point, and insertion point
+  (list bottom-left bottom-right top-right top-left (car block-data))  ; Return all corners plus insertion point
+)
+
+;; Function to check if line segments intersect
+(defun lines-intersect (p1 p2 p3 p4 / denominator ua ub)
+  (setq denominator (- (* (- (cadr p4) (cadr p3)) (- (car p2) (car p1)))
+                      (* (- (car p4) (car p3)) (- (cadr p2) (cadr p1)))))
+  
+  (if (not (equal denominator 0.0 1e-10))
+    (progn
+      (setq ua (/ (- (* (- (car p4) (car p3)) (- (cadr p1) (cadr p3)))
+                    (* (- (cadr p4) (cadr p3)) (- (car p1) (car p3))))
+                 denominator))
+      (setq ub (/ (- (* (- (car p2) (car p1)) (- (cadr p1) (cadr p3)))
+                    (* (- (cadr p2) (cadr p1)) (- (car p1) (car p3))))
+                 denominator))
+      (and (>= ua 0.0) (<= ua 1.0) (>= ub 0.0) (<= ub 1.0))
+    )
+    nil
+  )
+)
+
+;; Function to check if polygons overlap
+(defun polygons-overlap (corners1 corners2 / i j)
+  ;; First check if any line segments intersect
+  (setq i 0)
+  (while (< i 4)
+    (setq j 0)
+    (while (< j 4)
+      (if (lines-intersect (nth i corners1)
+                          (nth (rem (1+ i) 4) corners1)
+                          (nth j corners2)
+                          (nth (rem (1+ j) 4) corners2))
+        (return-from 'polygons-overlap T)
+      )
+      (setq j (1+ j))
+    )
+    (setq i (1+ i))
+  )
+  
+  ;; Then check if one polygon is completely inside the other
+  (or (point-in-polygon (nth 0 corners1) corners2)
+      (point-in-polygon (nth 0 corners2) corners1))
 )
 
 ;; Function to check if two blocks overlap
-(defun check-block-overlap (data1 data2 / min1 max1 min2 max2 center1 center2 dist threshold)
-  ;; Debug output for input data
-  (princ "\nData1: ")
-  (princ (vl-princ-to-string data1))
-  (princ "\nData2: ")
-  (princ (vl-princ-to-string data2))
-
-  (if (and data1 data2)
-    (progn
-      (setq min1 (car data1)
-            max1 (cadr data1)
-            center1 (caddr data1)
-            min2 (car data2)
-            max2 (cadr data2)
-            center2 (caddr data2))
-      
-      ;; Validate center points
-      (if (and center1 center2 
-               (listp center1) (listp center2)
-               (>= (length center1) 2) (>= (length center2) 2))
-        (progn
-          ;; Calculate distance between block centers
-          (setq dist (sqrt (+ (expt (- (car center2) (car center1)) 2)
-                             (expt (- (cadr center2) (cadr center1)) 2))))
-          
-          ;; Calculate average block size for threshold
-          (setq size1 (sqrt (+ (expt (- (car max1) (car min1)) 2)
-                              (expt (- (cadr max1) (cadr min1)) 2))))
-          (setq size2 (sqrt (+ (expt (- (car max2) (car min2)) 2)
-                              (expt (- (cadr max2) (cadr min2)) 2))))
-          
-          ;; Set threshold to half of average block size
-          (setq threshold (* 0.5 (/ (+ size1 size2) 2)))
-          
-          ;; Debug output
-          (princ (strcat "\nComparing blocks:"))
-          (princ (strcat "\nBlock 1 center: " (vl-princ-to-string center1)))
-          (princ (strcat "\nBlock 2 center: " (vl-princ-to-string center2)))
-          (princ (strcat "\nDistance: " (rtos dist)))
-          (princ (strcat "\nThreshold: " (rtos threshold)))
-          
-          ;; Return true if distance is less than threshold
-          (< dist threshold)
-        )
-        nil  ; Return nil if center points are invalid
-      )
-    )
-    nil  ; Return nil if input data is invalid
-  )
+(defun check-block-overlap (data1 data2 / corners1 corners2)
+  ;; Debug output
+  (princ "\n=== Debug Information ===")
+  (princ "\nChecking overlap between two labels:")
+  (princ "\nLabel 1 corners:")
+  (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (butlast data1))
+  (princ "\nLabel 2 corners:")
+  (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (butlast data2))
+  
+  ;; Get corners (exclude insertion point which is last element)
+  (setq corners1 (butlast data1)
+        corners2 (butlast data2))
+  
+  ;; Check for overlap
+  (setq result (polygons-overlap corners1 corners2))
+  
+  (princ (strcat "\nOverlap detected: " (if result "Yes" "No")))
+  (princ "\n=====================")
+  
+  result
 )
 
 ;; Function to process a single label
@@ -88,10 +110,8 @@
       (setq block-data (get-block-extents ent))
       (if block-data
         (progn
-          (princ (strcat "\nProcessed label extents: "))
-          (princ (vl-princ-to-string (car block-data)))
-          (princ " to ")
-          (princ (vl-princ-to-string (cadr block-data)))
+          (princ "\nProcessed label corners:")
+          (mapcar '(lambda (pt) (princ (strcat "\n  " (vl-princ-to-string pt)))) (butlast block-data))
           (setq mtextData 
             (cons 
               (list 
