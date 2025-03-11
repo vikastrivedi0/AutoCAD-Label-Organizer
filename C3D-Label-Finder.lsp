@@ -7,11 +7,15 @@
   (setq entdata (entget ent))
   (setq minx 1e99 miny 1e99 maxx -1e99 maxy -1e99)
   
+  ;; Debug output for entity data
+  (princ (strcat "\nProcessing entity: " (vl-princ-to-string ent)))
+  
   ;; Iterate through all points in the entity data
   (while entdata
     (if (= 10 (caar entdata))  ; Look for any point data (group code 10)
       (progn
         (setq pt (cdar entdata))
+        (princ (strcat "\nFound point: " (vl-princ-to-string pt)))
         (if (< (car pt) minx) (setq minx (car pt)))
         (if (< (cadr pt) miny) (setq miny (cadr pt)))
         (if (> (car pt) maxx) (setq maxx (car pt)))
@@ -23,8 +27,14 @@
   
   ;; If we found any points, return the extents
   (if (and (/= minx 1e99) (/= miny 1e99) (/= maxx -1e99) (/= maxy -1e99))
-    (list (list minx miny 0.0) (list maxx maxy 0.0))
-    nil
+    (progn
+      (princ (strcat "\nExtents found - Min: (" (rtos minx) "," (rtos miny) ") Max: (" (rtos maxx) "," (rtos maxy) ")"))
+      (list (list minx miny 0.0) (list maxx maxy 0.0))
+    )
+    (progn
+      (princ "\nNo points found in entity data, trying fallback method...")
+      nil
+    )
   )
 )
 
@@ -68,14 +78,26 @@
         (progn
           (setq overlap-area (calc-overlap-area minPt1 maxPt1 minPt2 maxPt2))
           (setq min-area (min area1 area2))
-          (setq overlap-threshold (* min-area 0.75))  ; Increased threshold to 75%
+          (setq overlap-threshold (* min-area 0.25))  ; Reduced threshold to 25%
           
           ;; Debug output
-          (princ (strcat "\nComparing labels - Areas: " (rtos area1) " and " (rtos area2)))
+          (princ (strcat "\n\nComparing labels:"))
+          (princ (strcat "\nLabel 1 - Min: " (vl-princ-to-string minPt1) " Max: " (vl-princ-to-string maxPt1)))
+          (princ (strcat "\nLabel 2 - Min: " (vl-princ-to-string minPt2) " Max: " (vl-princ-to-string maxPt2)))
+          (princ (strcat "\nAreas: " (rtos area1) " and " (rtos area2)))
           (princ (strcat "\nOverlap area: " (rtos overlap-area)))
           (princ (strcat "\nThreshold: " (rtos overlap-threshold)))
           
-          (> overlap-area overlap-threshold)
+          (if (> overlap-area overlap-threshold)
+            (progn
+              (princ "\nOverlap detected!")
+              T
+            )
+            (progn
+              (princ "\nNo significant overlap.")
+              nil
+            )
+          )
         )
         nil  ; Return nil if either area is zero
       )
@@ -108,15 +130,19 @@
         )
         (progn
           ;; Fallback to using entity bounding box
+          (princ "\nUsing fallback method to get extents...")
           (command "._zoom" "_object" ent "")
           (setq pt1 (getvar "viewctr"))
           (setq size (getvar "viewsize"))
+          (setq min-pt (list (- (car pt1) (/ size 4)) (- (cadr pt1) (/ size 4)) 0.0))
+          (setq max-pt (list (+ (car pt1) (/ size 4)) (+ (cadr pt1) (/ size 4)) 0.0))
+          (princ (strcat "\nFallback extents - Min: " (vl-princ-to-string min-pt) " Max: " (vl-princ-to-string max-pt)))
           (setq mtextData 
             (cons 
               (list 
                 ent 
-                (list (- (car pt1) (/ size 2)) (- (cadr pt1) (/ size 2)) 0.0)  ; Min point
-                (list (+ (car pt1) (/ size 2)) (+ (cadr pt1) (/ size 2)) 0.0)  ; Max point
+                min-pt  ; Min point
+                max-pt  ; Max point
               )
               mtextData
             )
