@@ -28,6 +28,54 @@
   )
 )
 
+;; Function to calculate area of a bounding box
+(defun calc-area (minPt maxPt)
+  (* (- (car maxPt) (car minPt))
+     (- (cadr maxPt) (cadr minPt)))
+)
+
+;; Function to calculate overlap area
+(defun calc-overlap-area (minPt1 maxPt1 minPt2 maxPt2)
+  (setq overlap-minx (max (car minPt1) (car minPt2)))
+  (setq overlap-miny (max (cadr minPt1) (cadr minPt2)))
+  (setq overlap-maxx (min (car maxPt1) (car maxPt2)))
+  (setq overlap-maxy (min (cadr maxPt1) (cadr maxPt2)))
+  
+  (if (and (< overlap-minx overlap-maxx)
+           (< overlap-miny overlap-maxy))
+    (* (- overlap-maxx overlap-minx)
+       (- overlap-maxy overlap-miny))
+    0.0
+  )
+)
+
+;; Function to check if two bounding boxes overlap significantly
+(defun check-overlap (data1 data2 / minPt1 maxPt1 minPt2 maxPt2 area1 area2 overlap-area min-area overlap-threshold)
+  (if (and data1 data2 (cadr data1) (caddr data1) (cadr data2) (caddr data2))  ; Validate data
+    (progn
+      (setq minPt1 (cadr data1)
+            maxPt1 (caddr data1)
+            minPt2 (cadr data2)
+            maxPt2 (caddr data2))
+      
+      ;; Calculate areas
+      (setq area1 (calc-area minPt1 maxPt1))
+      (setq area2 (calc-area minPt2 maxPt2))
+      (setq overlap-area (calc-overlap-area minPt1 maxPt1 minPt2 maxPt2))
+      
+      ;; Get the smaller of the two areas
+      (setq min-area (min area1 area2))
+      
+      ;; Set overlap threshold to 50% of the smaller label
+      (setq overlap-threshold (* min-area 0.5))
+      
+      ;; Return true if overlap area is significant
+      (> overlap-area overlap-threshold)
+    )
+    nil  ; Return nil if data is invalid
+  )
+)
+
 ;; Function to process a single label
 (defun process-label (ent mtextData / extents)
   (if (and ent (not (null ent)) (entget ent))  ; Validate entity
@@ -66,25 +114,6 @@
     (princ (strcat "\nWarning: Invalid entity encountered"))
   )
   mtextData  ; Return the updated mtextData
-)
-
-;; Function to check if two bounding boxes overlap
-(defun check-overlap (data1 data2 / minPt1 maxPt1 minPt2 maxPt2)
-  (if (and data1 data2 (cadr data1) (caddr data1) (cadr data2) (caddr data2))  ; Validate data
-    (progn
-      (setq minPt1 (cadr data1)
-            maxPt1 (caddr data1)
-            minPt2 (cadr data2)
-            maxPt2 (caddr data2))
-      (not (or (< (car maxPt1) (car minPt2))
-               (< (car maxPt2) (car minPt1))
-               (< (cadr maxPt1) (cadr minPt2))
-               (< (cadr maxPt2) (cadr minPt1))
-          )
-      )
-    )
-    nil  ; Return nil if data is invalid
-  )
 )
 
 ;; Function to remove duplicates from a list (by Lee Mac)
@@ -136,12 +165,13 @@
       ;; Check for overlaps with error handling
       (foreach data1 mtextData
         (foreach data2 mtextData
-          (if (and (not (eq (car data1) (car data2)))
-                   (check-overlap data1 data2)
-                   (entget (car data1))  ; Verify entities still exist
+          (if (and (not (eq (car data1) (car data2)))  ; Not the same label
+                   (check-overlap data1 data2)          ; Significant overlap
+                   (entget (car data1))                 ; Verify entities still exist
                    (entget (car data2)))
             (progn
-              (setq overlapList (cons (car data1) overlapList))
+              ;; Only add the second label to the overlap list
+              ;; This way we keep one label and remove the other
               (setq overlapList (cons (car data2) overlapList))
             )
           )
