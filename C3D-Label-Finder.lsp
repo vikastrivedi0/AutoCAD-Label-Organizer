@@ -9,9 +9,9 @@
   ;; Initialize ActiveX
   (vl-load-com)
   
-  ;; Get both Pipe Labels and Structure Labels
-  (setq ss1 (ssget "_X" '((0 . "AeccDbPipeLabel")))
-        ss2 (ssget "_X" '((0 . "AeccDbStructureLabel"))))
+  ;; Get both Pipe Labels and Structure Labels using the correct entity types
+  (setq ss1 (ssget "_X" '((0 . "AECC_PIPE_LABEL")))
+        ss2 (ssget "_X" '((0 . "AECC_STRUCTURE_LABEL"))))
   
   (if (or ss1 ss2)
     (progn
