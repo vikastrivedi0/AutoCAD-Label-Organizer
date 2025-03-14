@@ -30,17 +30,21 @@
   )
 )
 
-;; Function to check if a point is inside a bounding box
-(defun point-in-bbox (point bbox / minPt maxPt)
-  (if (and point bbox (cadr bbox) (caddr bbox))
+;; Function to check if two bounding boxes overlap
+(defun bbox-overlap (bbox1 bbox2 / min1 max1 min2 max2)
+  (if (and bbox1 bbox2 (cadr bbox1) (caddr bbox1) (cadr bbox2) (caddr bbox2))
     (progn
-      (setq minPt (cadr bbox)
-            maxPt (caddr bbox))
+      (setq min1 (cadr bbox1)
+            max1 (caddr bbox1)
+            min2 (cadr bbox2)
+            max2 (caddr bbox2))
       (and
-        (>= (car point) (car minPt))
-        (<= (car point) (car maxPt))
-        (>= (cadr point) (cadr minPt))
-        (<= (cadr point) (cadr maxPt))
+        ;; Check X overlap
+        (<= (car min1) (car max2))
+        (>= (car max1) (car min2))
+        ;; Check Y overlap
+        (<= (cadr min1) (cadr max2))
+        (>= (cadr max1) (cadr min2))
       )
     )
     nil
@@ -56,7 +60,7 @@
 )
 
 ;; Function to count overlaps in each direction
-(defun count-directional-overlaps (ent bbox mtextData / count-left count-right count-up count-down insertion)
+(defun count-directional-overlaps (ent bbox mtextData / count-left count-right count-up count-down)
   (setq count-left 0
         count-right 0
         count-up 0
@@ -64,17 +68,22 @@
   
   (foreach data mtextData
     (if (and (not (eq (car data) ent))
-             (setq insertion (get-insertion-point (cadr data)))
-             (point-in-bbox insertion bbox))
+             (setq other-bbox (get-expanded-bbox (cadr data)))
+             (bbox-overlap bbox other-bbox))
       (progn
-        ;; Count overlaps in each direction
-        (if (< (car insertion) (car (cadr bbox)))
+        ;; Get centers of both bounding boxes
+        (setq center1 (list (/ (+ (car (cadr bbox)) (car (caddr bbox))) 2.0)
+              center2 (list (/ (+ (car (cadr other-bbox)) (car (caddr other-bbox))) 2.0)
+                           (/ (+ (cadr (cadr other-bbox)) (cadr (caddr other-bbox))) 2.0)))
+        
+        ;; Count overlaps in each direction based on relative positions
+        (if (< (car center2) (car center1))
           (setq count-left (1+ count-left)))
-        (if (> (car insertion) (car (cadr bbox)))
+        (if (> (car center2) (car center1))
           (setq count-right (1+ count-right)))
-        (if (< (cadr insertion) (cadr (cadr bbox)))
+        (if (< (cadr center2) (cadr center1))
           (setq count-down (1+ count-down)))
-        (if (> (cadr insertion) (cadr (cadr bbox)))
+        (if (> (cadr center2) (cadr center1))
           (setq count-up (1+ count-up)))
       )
     )
