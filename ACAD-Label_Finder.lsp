@@ -197,6 +197,77 @@
   (princ)
 )
 
+;; Function to write data to CSV file
+(defun write-csv-line (file-handle data)
+  (write-line (vl-string-subst "," "\"" (vl-princ-to-string data)) file-handle)
+)
+
+;; Function to export MTEXT positions to CSV
+(defun c:ACAD-MTEXT-EXPORT-POSITIONS (/ ss ent obj mtextData count file-handle)
+  ;; Initialize ActiveX
+  (vl-load-com)
+  
+  (if (setq ss (ssget "_X" '((0 . "MTEXT"))))
+    (progn
+      (setq mtextData '())
+      (setq count 0)
+
+      ;; Collect all MTEXT data
+      (repeat (setq count (sslength ss))
+        (setq ent (ssname ss (setq count (1- count))))
+        (if (and ent (not (null ent)))
+          (progn
+            (setq entdata (entget ent))
+            (if entdata
+              (setq mtextData (cons (list ent entdata) mtextData))
+            )
+          )
+        )
+      )
+
+      (print (strcat "\nFound " (itoa (length mtextData)) " MTEXT labels."))
+      
+      ;; Create CSV file
+      (setq file-handle (open "mtext_positions.csv" "w"))
+      (if file-handle
+        (progn
+          ;; Write CSV header
+          (write-line "Entity Name,Handle,Insertion X,Insertion Y,Insertion Z,Width,Height,Text Content" file-handle)
+          
+          ;; Process each label
+          (foreach label-data mtextData
+            (setq ent (car label-data)
+                  entdata (cadr label-data))
+            
+            ;; Extract data
+            (setq insertion (cdr (assoc 10 entdata))  ; Insertion point
+                  width (cdr (assoc 41 entdata))      ; Width
+                  height (cdr (assoc 43 entdata))     ; Height
+                  handle (cdr (assoc 5 entdata))      ; Handle
+                  text (cdr (assoc 1 entdata)))       ; Text content
+            
+            ;; Write data to CSV
+            (write-csv-line file-handle (strcat (vl-princ-to-string ent) "," handle))
+            (write-csv-line file-handle (strcat (rtos (car insertion) 2 6) ","))
+            (write-csv-line file-handle (strcat (rtos (cadr insertion) 2 6) ","))
+            (write-csv-line file-handle (strcat (rtos (caddr insertion) 2 6) ","))
+            (write-csv-line file-handle (strcat (rtos width 2 6) ","))
+            (write-csv-line file-handle (strcat (rtos height 2 6) ","))
+            (write-csv-line file-handle (strcat "\"" (vl-string-subst "\"\"" "\"" text) "\""))
+            (write-line "" file-handle)
+          )
+          
+          (close file-handle)
+          (print "\nPosition data exported to mtext_positions.csv")
+        )
+        (print "\nError: Could not create CSV file")
+      )
+    )
+    (print "\nNo MTEXT objects found in the drawing.")
+  )
+  (princ)
+)
+
 ;; Load the function
 (princ "\nAutoCAD MTEXT Label Overlap Detector (Smart Move) loaded. Type ACAD-MTEXT-MOVE-OVERLAP-SMART to run.")
 (princ) 
