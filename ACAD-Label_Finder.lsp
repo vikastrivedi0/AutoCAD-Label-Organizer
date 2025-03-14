@@ -47,8 +47,16 @@
   )
 )
 
+;; Function to get insertion point from entity data
+(defun get-insertion-point (entdata)
+  (if entdata
+    (cdr (assoc 10 entdata))
+    nil
+  )
+)
+
 ;; Function to count overlaps in each direction
-(defun count-directional-overlaps (ent bbox mtextData / count-left count-right count-up count-down)
+(defun count-directional-overlaps (ent bbox mtextData / count-left count-right count-up count-down insertion)
   (setq count-left 0
         count-right 0
         count-up 0
@@ -56,16 +64,17 @@
   
   (foreach data mtextData
     (if (and (not (eq (car data) ent))
-             (point-in-bbox (cadr data) bbox))
+             (setq insertion (get-insertion-point (cadr data)))
+             (point-in-bbox insertion bbox))
       (progn
         ;; Count overlaps in each direction
-        (if (< (car (cadr data)) (car (cadr bbox)))
+        (if (< (car insertion) (car (cadr bbox)))
           (setq count-left (1+ count-left)))
-        (if (> (car (cadr data)) (car (cadr bbox)))
+        (if (> (car insertion) (car (cadr bbox)))
           (setq count-right (1+ count-right)))
-        (if (< (cadr (cadr data)) (cadr (cadr bbox)))
+        (if (< (cadr insertion) (cadr (cadr bbox)))
           (setq count-down (1+ count-down)))
-        (if (> (cadr (cadr data)) (cadr (cadr bbox)))
+        (if (> (cadr insertion) (cadr (cadr bbox)))
           (setq count-up (1+ count-up)))
       )
     )
@@ -128,43 +137,50 @@
               )
             )
             
-            ;; Calculate movement distance (use width or height as base)
-            (setq width (cdr (assoc 41 entdata))
-                  height (cdr (assoc 43 entdata))
-                  move-distance (max width height))
-            
-            ;; Calculate new position based on best direction
-            (setq current-pos (cdr (assoc 10 entdata))
-                  new-pos current-pos)
-            
-            (cond
-              ((= best-direction "left")
-               (setq new-pos (list (- (car current-pos) move-distance)
-                                 (cadr current-pos)
-                                 (caddr current-pos))))
-              ((= best-direction "right")
-               (setq new-pos (list (+ (car current-pos) move-distance)
-                                 (cadr current-pos)
-                                 (caddr current-pos))))
-              ((= best-direction "up")
-               (setq new-pos (list (car current-pos)
-                                 (+ (cadr current-pos) move-distance)
-                                 (caddr current-pos))))
-              ((= best-direction "down")
-               (setq new-pos (list (car current-pos)
-                                 (- (cadr current-pos) move-distance)
-                                 (caddr current-pos))))
+            ;; Only move if we found a valid direction
+            (if best-direction
+              (progn
+                ;; Calculate movement distance (use width or height as base)
+                (setq width (cdr (assoc 41 entdata))
+                      height (cdr (assoc 43 entdata))
+                      move-distance (max width height))
+                
+                ;; Calculate new position based on best direction
+                (setq current-pos (cdr (assoc 10 entdata))
+                      new-pos current-pos)
+                
+                (cond
+                  ((= best-direction "left")
+                   (setq new-pos (list (- (car current-pos) move-distance)
+                                     (cadr current-pos)
+                                     (caddr current-pos))))
+                  ((= best-direction "right")
+                   (setq new-pos (list (+ (car current-pos) move-distance)
+                                     (cadr current-pos)
+                                     (caddr current-pos))))
+                  ((= best-direction "up")
+                   (setq new-pos (list (car current-pos)
+                                     (+ (cadr current-pos) move-distance)
+                                     (caddr current-pos))))
+                  ((= best-direction "down")
+                   (setq new-pos (list (car current-pos)
+                                     (- (cadr current-pos) move-distance)
+                                     (caddr current-pos))))
+                )
+                
+                ;; Move the label
+                (command "._move" ent "" current-pos new-pos)
+                (setq moved-count (1+ moved-count))
+                
+                ;; Print debug information
+                (princ (strcat "\nMoved label " (vl-princ-to-string ent) 
+                              " " best-direction " by " 
+                              (rtos move-distance) " units"))
+              )
+              (princ (strcat "\nNo valid direction found for label " (vl-princ-to-string ent)))
             )
-            
-            ;; Move the label
-            (command "._move" ent "" current-pos new-pos)
-            (setq moved-count (1+ moved-count))
-            
-            ;; Print debug information
-            (princ (strcat "\nMoved label " (vl-princ-to-string ent) 
-                          " " best-direction " by " 
-                          (rtos move-distance) " units"))
           )
+          (princ (strcat "\nCould not get bounding box for label " (vl-princ-to-string ent)))
         )
       )
 
