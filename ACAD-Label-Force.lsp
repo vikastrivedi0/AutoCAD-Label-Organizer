@@ -31,8 +31,8 @@
 (defun c:ACAD-MTEXT-FORCE-PLACE (/ ss ent obj mtextData count iterations)
   ;; Initialize parameters
   (setq iterations 100
-        repulsion-strength 100.0
-        attraction-strength 10.0
+        repulsion-strength 15.0
+        attraction-strength 5.0
         damping 0.9
         min-distance 5.0)
   
