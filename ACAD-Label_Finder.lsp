@@ -5,7 +5,7 @@
 ;; Load ActiveX support
 (vl-load-com)
 
-;; Function to calculate overlap distance between two bounding boxes
+;; Function to calculate overlap distance and direction between two bounding boxes
 (defun calculate-overlap-distance (data1 data2 / minPt1 maxPt1 minPt2 maxPt2)
   (if (and data1 data2 (cadr data1) (caddr data1) (cadr data2) (caddr data2))
     (progn
@@ -22,10 +22,16 @@
       (setq y-overlap (min (- (cadr maxPt1) (cadr minPt2))
                           (- (cadr maxPt2) (cadr minPt1))))
       
-      ;; Return the larger overlap distance plus a small buffer (1 unit)
-      (+ (max x-overlap y-overlap) 1.0)
+      ;; Determine direction based on relative positions
+      (setq direction 1.0)  ; Default to moving right
+      (if (< (car minPt1) (car minPt2))
+        (setq direction -1.0)  ; Move left if this label is to the left of the other
+      )
+      
+      ;; Return list of (distance direction)
+      (list (+ (max x-overlap y-overlap) 1.0) direction)
     )
-    0.0
+    (list 0.0 1.0)  ; Default to no overlap and moving right
   )
 )
 
@@ -109,13 +115,15 @@
                    (entget (car data1))  ; Verify entities still exist
                    (entget (car data2)))
             (progn
-              ;; Calculate overlap distance
-              (setq overlap-dist (calculate-overlap-distance data1 data2))
+              ;; Calculate overlap distance and direction
+              (setq overlap-info (calculate-overlap-distance data1 data2))
+              (setq overlap-dist (car overlap-info))
+              (setq direction (cadr overlap-info))
               
-              ;; Store the pair and their overlap distance
+              ;; Store the pair and their overlap distance and direction
               (setq overlap-pairs 
                 (cons 
-                  (list (car data1) (car data2) overlap-dist)
+                  (list (car data1) (car data2) overlap-dist direction)
                   overlap-pairs
                 )
               )
@@ -152,16 +160,24 @@
             (setq entdata (entget ent))
             (setq current-pos (cdr (assoc 10 entdata)))
             
-            ;; Find the maximum overlap distance for this label
+            ;; Find the maximum overlap distance and direction for this label
             (setq max-overlap 0.0)
+            (setq move-direction 1.0)  ; Default to moving right
             (foreach pair overlap-pairs
               (if (or (eq (car pair) ent) (eq (cadr pair) ent))
-                (setq max-overlap (max max-overlap (caddr pair)))
+                (progn
+                  (if (> (caddr pair) max-overlap)
+                    (progn
+                      (setq max-overlap (caddr pair))
+                      (setq move-direction (cadddr pair))
+                    )
+                  )
+                )
               )
             )
             
-            ;; Calculate new position (offset by maximum overlap distance)
-            (setq new-pos (list (+ (car current-pos) max-overlap)
+            ;; Calculate new position (offset by maximum overlap distance in the appropriate direction)
+            (setq new-pos (list (+ (car current-pos) (* max-overlap move-direction))
                                (cadr current-pos)
                                (caddr current-pos)))
             
@@ -170,7 +186,8 @@
             (setq moved-count (1+ moved-count))
             
             ;; Print debug information
-            (princ (strcat "\nMoved label by " (rtos max-overlap) " units"))
+            (princ (strcat "\nMoved label by " (rtos max-overlap) " units " 
+                          (if (< move-direction 0) "left" "right")))
           )
         )
       )
