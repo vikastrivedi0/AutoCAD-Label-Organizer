@@ -125,6 +125,12 @@
             ;; Count overlaps in each direction
             (setq overlap-counts (count-directional-overlaps ent expanded-bbox mtextData))
             
+            ;; Print debug information about overlaps
+            (princ (strcat "\nLabel " (vl-princ-to-string ent) " overlaps:"))
+            (foreach dir-count overlap-counts
+              (princ (strcat "\n  " (car dir-count) ": " (itoa (cadr dir-count))))
+            )
+            
             ;; Find direction with least overlaps
             (setq best-direction nil
                   min-overlaps most-positive-fixnum)
@@ -137,8 +143,8 @@
               )
             )
             
-            ;; Only move if we found a valid direction
-            (if best-direction
+            ;; Only move if we found a valid direction and there are overlaps
+            (if (and best-direction (> min-overlaps 0))
               (progn
                 ;; Calculate movement distance (use width or height as base)
                 (setq width (cdr (assoc 41 entdata))
@@ -177,7 +183,7 @@
                               " " best-direction " by " 
                               (rtos move-distance) " units"))
               )
-              (princ (strcat "\nNo valid direction found for label " (vl-princ-to-string ent)))
+              (princ (strcat "\nNo overlaps found for label " (vl-princ-to-string ent)))
             )
           )
           (princ (strcat "\nCould not get bounding box for label " (vl-princ-to-string ent)))
