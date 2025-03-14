@@ -18,9 +18,8 @@
 )
 
 ;; Function to get block extents with all four corners
-(defun get-block-extents (ent / block-data min-pt max-pt width height)
+(defun get-block-extents (ent / block-data min-pt max-pt width height entdata insertion-pt)
   (command "._zoom" "_object" ent "")
-  (setq block-data (get-block-data ent))
   (setq min-pt (getvar "viewctr"))
   (setq width (getvar "viewsize"))
   (setq height (getvar "viewsize"))
@@ -34,8 +33,15 @@
         top-right max-pt
         top-left (list (car min-pt) (cadr max-pt) 0.0))
   
+  ;; Get insertion point from entity data instead of ActiveX
+  (setq entdata (entget ent))
+  (if entdata
+    (setq insertion-pt (cdr (assoc 10 entdata)))  ; Get insertion point from group code 10
+    (setq insertion-pt (list 0 0 0))  ; Default if not found
+  )
+  
   (command "._zoom" "_previous")
-  (list bottom-left bottom-right top-right top-left (car block-data))  ; Return all corners plus insertion point
+  (list bottom-left bottom-right top-right top-left insertion-pt)
 )
 
 ;; Function to check if line segments intersect
@@ -263,6 +269,116 @@
       )
     )
     (print "\nNo Civil 3D Pipe or Structure labels found in the drawing.")
+  )
+  (princ)
+)
+
+;; Function to write data to file
+(defun write-to-file (filename data / file)
+  (setq file (open filename "w"))
+  (foreach item data
+    (write-line item file))
+  (close file))
+
+;; Function to format point as string
+(defun point-to-string (pt)
+  (strcat (rtos (car pt) 2 8) "," (rtos (cadr pt) 2 8) "," (rtos (caddr pt) 2 8)))
+
+(defun c:C3D-EXPORT-LABELS ( / ss1 ss2 ent label-data csv-data)
+  (princ "\nExporting Civil 3D label data...")
+  
+  ;; Get both Pipe Labels and Structure Labels
+  (setq ss1 (ssget "_X" '((0 . "AECC_PIPE_LABEL")))
+        ss2 (ssget "_X" '((0 . "AECC_STRUCTURE_LABEL")))
+        label-data '()
+        csv-data '())
+  
+  ;; Add CSV header
+  (setq csv-data (cons "id,type,bl_x,bl_y,bl_z,br_x,br_y,br_z,tr_x,tr_y,tr_z,tl_x,tl_y,tl_z,ins_x,ins_y,ins_z" csv-data))
+  
+  (if (or ss1 ss2)
+    (progn
+      ;; Process Pipe Labels
+      (if ss1
+        (progn
+          (princ (strcat "\nProcessing " (itoa (sslength ss1)) " Pipe Labels..."))
+          (setq count (sslength ss1))
+          (while (> count 0)
+            (setq count (1- count))
+            (setq ent (ssname ss1 count))
+            (if ent
+              (progn
+                (vl-catch-all-apply
+                  '(lambda ()
+                    (setq corners (get-block-extents ent))
+                    (if corners
+                      (progn
+                        ;; Get handle using entget
+                        (setq handle (cdr (assoc 5 (entget ent))))
+                        (setq csv-line (strcat
+                          handle ","                        ; ID
+                          "PIPE,"                          ; Type
+                          (point-to-string (nth 0 corners)) "," ; Bottom-left
+                          (point-to-string (nth 1 corners)) "," ; Bottom-right
+                          (point-to-string (nth 2 corners)) "," ; Top-right
+                          (point-to-string (nth 3 corners)) "," ; Top-left
+                          (point-to-string (nth 4 corners))     ; Insertion point
+                        ))
+                        (setq csv-data (cons csv-line csv-data))
+                        (princ (strcat "\nProcessed PIPE label with handle: " handle))
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+
+      ;; Process Structure Labels
+      (if ss2
+        (progn
+          (princ (strcat "\nProcessing " (itoa (sslength ss2)) " Structure Labels..."))
+          (setq count (sslength ss2))
+          (while (> count 0)
+            (setq count (1- count))
+            (setq ent (ssname ss2 count))
+            (if ent
+              (progn
+                (vl-catch-all-apply
+                  '(lambda ()
+                    (setq corners (get-block-extents ent))
+                    (if corners
+                      (progn
+                        ;; Get handle using entget
+                        (setq handle (cdr (assoc 5 (entget ent))))
+                        (setq csv-line (strcat
+                          handle ","                        ; ID
+                          "STRUCTURE,"                      ; Type
+                          (point-to-string (nth 0 corners)) "," ; Bottom-left
+                          (point-to-string (nth 1 corners)) "," ; Bottom-right
+                          (point-to-string (nth 2 corners)) "," ; Top-right
+                          (point-to-string (nth 3 corners)) "," ; Top-left
+                          (point-to-string (nth 4 corners))     ; Insertion point
+                        ))
+                        (setq csv-data (cons csv-line csv-data))
+                        (princ (strcat "\nProcessed STRUCTURE label with handle: " handle))
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+
+      ;; Write data to CSV file
+      (write-to-file "label_data.csv" (reverse csv-data))
+      (princ "\nLabel data exported to label_data.csv")
+    )
+    (princ "\nNo Civil 3D labels found in the drawing.")
   )
   (princ)
 )

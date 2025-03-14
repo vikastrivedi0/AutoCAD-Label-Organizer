@@ -178,4 +178,4 @@
 
 ;; Load the function
 (princ "\nCivil 3D Label Overlap Detector (Delete) loaded. Type C3D-LABEL-DELETE-OVERLAP to run.")
-(princ) 
+(princ)
