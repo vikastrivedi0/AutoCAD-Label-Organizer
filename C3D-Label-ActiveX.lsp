@@ -270,48 +270,128 @@
 )
 
 ;; Command to move a pipe label by offset
-(defun c:C3D-MOVE-PIPE-LABEL ( / doc model-space label-obj pos new-pos offset found)
+(defun c:C3D-MOVE-PIPE-LABEL ( / ss ent entdata pos new-pos offset)
   (princ "\n=== Moving Pipe Label ===")
   (vl-load-com)
   
   (setq offset 20.0)  ; Set the offset value
   
-  ;; Get the active document and model space
-  (setq doc (vla-get-ActiveDocument (vlax-get-acad-object))
-        model-space (vla-get-ModelSpace doc))
+  ;; Get selection set for pipe labels
+  (setq ss (ssget '((0 . "AECC_PIPE_LABEL"))))
   
-  ;; Find the first AeccDbPipeLabel
-  (setq found nil)
-  (vlax-for obj model-space
-    (if (and (not found) (= (vlax-get obj 'ObjectName) "AeccDbPipeLabel"))
-      (progn
-        (setq label-obj obj)
-        (setq found T)
-      )
-    )
-  )
-  
-  (if label-obj
+  (if ss
     (progn
-      ;; Get the current location of the label
-      (setq pos (vlax-variant-value (vlax-get label-obj 'Location)))
-      (princ (strcat "\nDebug: Current position: " (vl-princ-to-string pos)))
+      (setq ent (ssname ss 0))
+      (setq entdata (entget ent))
       
-      (if pos
+      (if entdata
         (progn
-          ;; Calculate the new position (offset in the X direction)
-          (setq new-pos (list (+ (car pos) offset)
-                             (cadr pos)
-                             (caddr pos)))
+          ;; Print all DXF codes for debugging
+          (princ "\nAll DXF codes:")
+          (foreach pair entdata
+            (princ (strcat "\n  " (vl-princ-to-string (car pair)) ": " (vl-princ-to-string (cdr pair))))
+          )
           
-          ;; Set the new location
-          (vlax-put label-obj 'Location (vlax-3d-point new-pos))
-          (princ (strcat "\nPipe label moved by " (rtos offset) " units."))
+          ;; Try to get position from different sources
+          (princ "\n\nTrying to get position:")
+          
+          ;; Try different DXF codes that might contain position data
+          (setq pos nil)
+          
+          ;; Try DXF 10 (primary position)
+          (if (not pos)
+            (progn
+              (setq pos (cdr (assoc 10 entdata)))
+              (if pos (princ (strcat "\n  Position from DXF 10: " (vl-princ-to-string pos))))
+            )
+          )
+          
+          ;; Try DXF 11 (secondary position)
+          (if (not pos)
+            (progn
+              (setq pos (cdr (assoc 11 entdata)))
+              (if pos (princ (strcat "\n  Position from DXF 11: " (vl-princ-to-string pos))))
+            )
+          )
+          
+          ;; Try DXF 12 (tertiary position)
+          (if (not pos)
+            (progn
+              (setq pos (cdr (assoc 12 entdata)))
+              (if pos (princ (strcat "\n  Position from DXF 12: " (vl-princ-to-string pos))))
+            )
+          )
+          
+          ;; Try DXF 13 (fourth position)
+          (if (not pos)
+            (progn
+              (setq pos (cdr (assoc 13 entdata)))
+              (if pos (princ (strcat "\n  Position from DXF 13: " (vl-princ-to-string pos))))
+            )
+          )
+          
+          ;; If no position found in main entity, try to get it from the parent entity
+          (if (not pos)
+            (progn
+              (setq parent-ref (cdr (assoc 330 entdata)))
+              (if parent-ref
+                (progn
+                  (princ (strcat "\n  Parent entity reference: " (vl-princ-to-string parent-ref)))
+                  ;; Try to get the parent entity's data directly
+                  (setq parent-data (entget parent_ref))
+                  (if parent-data
+                    (progn
+                      (princ "\n  Parent entity data:")
+                      (foreach pair parent-data
+                        (princ (strcat "\n    " (vl-princ-to-string (car pair)) ": " (vl-princ-to-string (cdr pair))))
+                      )
+                      ;; Try to get position from parent entity's DXF codes
+                      (setq pos (cdr (assoc 10 parent-data)))
+                      (if pos (princ (strcat "\n  Position from parent DXF 10: " (vl-princ-to-string pos))))
+                    )
+                    (princ "\n  Could not get parent entity data")
+                  )
+                )
+                (princ "\n  No parent entity reference found")
+              )
+            )
+          )
+          
+          ;; If still no position found, try to get it from the label's extents
+          (if (not pos)
+            (progn
+              (princ "\nTrying to get position from label extents:")
+              (setq extents (get-label-extents ent))
+              (if extents
+                (progn
+                  (setq pos (car extents))
+                  (princ (strcat "\n  Position from extents: " (vl-princ-to-string pos)))
+                )
+                (princ "\n  Could not get label extents")
+              )
+            )
+          )
+          
+          (if pos
+            (progn
+              (princ (strcat "\nUsing position: " (vl-princ-to-string pos)))
+              
+              ;; Calculate new position (offset in X direction)
+              (setq new-pos (list (+ (car pos) offset)
+                                 (cadr pos)
+                                 (caddr pos)))
+              
+              ;; Move the label using the MOVE command
+              (command "._move" ent "" pos new-pos)
+              (princ (strcat "\nLabel moved by " (rtos offset) " units."))
+            )
+            (princ "\nCould not find any valid position for the label.")
+          )
         )
-        (princ "\nCould not get label position.")
+        (princ "\nCould not get entity data.")
       )
     )
-    (princ "\nNo AeccDbPipeLabel found in the drawing.")
+    (princ "\nNo pipe label selected.")
   )
   
   (princ)

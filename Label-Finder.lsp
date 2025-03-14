@@ -1,11 +1,11 @@
-;;; AutoCAD Label Overlap Detector (MTEXT) - Delete Overlapping Labels (Textbox Approach)
-;;; This script detects overlapping MTEXT labels and deletes them.
-;;; Usage: Load the script and run the command ACAD-MTEXT-DELETE-OVERLAP
+;;; AutoCAD Label Overlap Detector (MTEXT) - Move Overlapping Labels
+;;; This script detects overlapping MTEXT labels and moves them by an offset.
+;;; Usage: Load the script and run the command ACAD-MTEXT-MOVE-OVERLAP
 
 ;; Load ActiveX support
 (vl-load-com)
 
-(defun c:ACAD-MTEXT-DELETE-OVERLAP (/ ss ent obj mtextData overlapList count)
+(defun c:ACAD-MTEXT-MOVE-OVERLAP (/ ss ent obj mtextData overlapList count)
   ;; Initialize ActiveX
   (vl-load-com)
   
@@ -13,6 +13,7 @@
     (progn
       (setq mtextData '())
       (setq overlapList '())
+      (setq offset 20.0)  ; Set the offset value
 
       (repeat (setq count (sslength ss))
         (setq ent (ssname ss (setq count (1- count))))
@@ -100,20 +101,30 @@
       ;; Remove duplicates from overlap list
       (setq overlapList (LM:remove-duplicates overlapList))
 
-      ;; Delete overlapping labels with validation
+      ;; Move overlapping labels with validation
       (print (strcat "\nFound " (itoa (length overlapList)) " overlapping MTEXT labels."))
       
-      (setq deleted-count 0)
+      (setq moved-count 0)
       (foreach ent overlapList
         (if (and ent (entget ent))  ; Verify entity still exists
           (progn
-            (entdel ent)
-            (setq deleted-count (1+ deleted-count))
+            ;; Get current position
+            (setq entdata (entget ent))
+            (setq current-pos (cdr (assoc 10 entdata)))
+            
+            ;; Calculate new position (offset in X direction)
+            (setq new-pos (list (+ (car current-pos) offset)
+                               (cadr current-pos)
+                               (caddr current-pos)))
+            
+            ;; Move the label
+            (command "._move" ent "" current-pos new-pos)
+            (setq moved-count (1+ moved-count))
           )
         )
       )
 
-      (print (strcat "\nCompleted. Successfully deleted " (itoa deleted-count) " overlapping MTEXT labels."))
+      (print (strcat "\nCompleted. Successfully moved " (itoa moved-count) " overlapping MTEXT labels."))
     )
     (print "\nNo MTEXT objects found in the drawing.")
   )
@@ -121,5 +132,5 @@
 )
 
 ;; Load the function
-(princ "\nAutoCAD MTEXT Label Overlap Detector (Delete) loaded. Type ACAD-MTEXT-DELETE-OVERLAP to run.")
+(princ "\nAutoCAD MTEXT Label Overlap Detector (Move) loaded. Type ACAD-MTEXT-MOVE-OVERLAP to run.")
 (princ)
