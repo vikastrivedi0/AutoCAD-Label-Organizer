@@ -11,6 +11,57 @@
            (expt (- (cadr p1) (cadr p2)) 2)))
 )
 
+;; Function to get bounding box from polyline
+(defun get-bbox-from-polyline (ent / entdata points min-x min-y max-x max-y)
+  (setq entdata (entget ent))
+  (setq points '())
+  
+  ;; Extract points from polyline
+  (while entdata
+    (if (= (caar entdata) 10)  ; Vertex point
+      (setq points (cons (cdar entdata) points)))
+    (setq entdata (cdr entdata)))
+  
+  ;; Find min and max coordinates
+  (setq min-x (car (car points))
+        min-y (cadr (car points))
+        max-x min-x
+        max-y min-y)
+  
+  (foreach point points
+    (setq min-x (min min-x (car point))
+          min-y (min min-y (cadr point))
+          max-x (max max-x (car point))
+          max-y (max max-y (cadr point))))
+  
+  ;; Return bounding box as (min-point max-point)
+  (list (list min-x min-y 0.0)
+        (list max-x max-y 0.0))
+)
+
+;; Function to check if point is inside bounding box
+(defun point-in-bbox (point bbox / min-pt max-pt)
+  (setq min-pt (car bbox)
+        max-pt (cadr bbox))
+  (and
+    (>= (car point) (car min-pt))
+    (<= (car point) (car max-pt))
+    (>= (cadr point) (cadr min-pt))
+    (<= (cadr point) (cadr max-pt))
+  )
+)
+
+;; Function to constrain point to bounding box
+(defun constrain-to-bbox (point bbox / min-pt max-pt)
+  (setq min-pt (car bbox)
+        max-pt (cadr bbox))
+  (list
+    (max (car min-pt) (min (car point) (car max-pt)))
+    (max (cadr min-pt) (min (cadr point) (cadr max-pt)))
+    (caddr point)
+  )
+)
+
 ;; Function to calculate repulsive force between two labels
 (defun calculate-repulsion (p1 p2 min-distance repulsion-strength)
   (setq dist (point-distance p1 p2))
@@ -41,7 +92,7 @@
 )
 
 ;; Function to apply force-directed placement
-(defun c:ACAD-MTEXT-FORCE-PLACE (/ ss ent obj mtextData count iterations)
+(defun c:ACAD-MTEXT-FORCE-PLACE (/ ss ent obj mtextData count iterations bbox-ent bbox)
   ;; Initialize parameters
   (setq iterations 100
         repulsion-strength 15.0
@@ -51,6 +102,25 @@
   
   ;; Initialize ActiveX
   (vl-load-com)
+  
+  ;; Get bounding box from user
+  (princ "\nSelect the bounding box polyline: ")
+  (if (setq bbox-ent (entsel))
+    (progn
+      (setq bbox-ent (car bbox-ent))
+      (if (= (cdr (assoc 0 (entget bbox-ent))) "LWPOLYLINE")
+        (setq bbox (get-bbox-from-polyline bbox-ent))
+        (progn
+          (princ "\nError: Please select a polyline.")
+          (exit)
+        )
+      )
+    )
+    (progn
+      (princ "\nNo bounding box selected.")
+      (exit)
+    )
+  )
   
   (if (setq ss (ssget "_X" '((0 . "MTEXT"))))
     (progn
@@ -150,8 +220,13 @@
                                (caddr current-pos))))
           )
           
-          ;; Only move if there's a significant force
-          (if (and (not (= direction "none")) (> move-distance 0.1))
+          ;; Constrain new position to bounding box
+          (setq new-pos (constrain-to-bbox new-pos bbox))
+          
+          ;; Only move if there's a significant force and new position is different
+          (if (and (not (= direction "none")) 
+                   (> move-distance 0.1)
+                   (not (equal current-pos new-pos 0.001)))
             (progn
               ;; Move the label
               (command "._move" ent "" current-pos new-pos)
