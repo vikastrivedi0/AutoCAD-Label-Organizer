@@ -62,6 +62,42 @@
   )
 )
 
+;; Function to calculate safe movement distance
+(defun calculate-safe-move (current-pos new-pos bbox / min-pt max-pt)
+  (setq min-pt (car bbox)
+        max-pt (cadr bbox))
+  
+  ;; Calculate distances to boundaries
+  (setq dist-to-left (- (car current-pos) (car min-pt))
+        dist-to-right (- (car max-pt) (car current-pos))
+        dist-to-bottom (- (cadr current-pos) (cadr min-pt))
+        dist-to-top (- (cadr max-pt) (cadr current-pos)))
+  
+  ;; Calculate proposed movement
+  (setq dx (- (car new-pos) (car current-pos))
+        dy (- (cadr new-pos) (cadr current-pos)))
+  
+  ;; Calculate safe movement factors
+  (setq x-factor 1.0
+        y-factor 1.0)
+  
+  ;; Check X movement
+  (if (> dx 0)  ; Moving right
+    (setq x-factor (min 1.0 (/ dist-to-right dx)))
+    (if (< dx 0)  ; Moving left
+      (setq x-factor (min 1.0 (/ dist-to-left (- dx))))))
+  
+  ;; Check Y movement
+  (if (> dy 0)  ; Moving up
+    (setq y-factor (min 1.0 (/ dist-to-top dy)))
+    (if (< dy 0)  ; Moving down
+      (setq y-factor (min 1.0 (/ dist-to-bottom (- dy))))))
+  
+  ;; Return safe movement
+  (list (* dx x-factor)
+        (* dy y-factor))
+)
+
 ;; Function to calculate repulsive force between two labels
 (defun calculate-repulsion (p1 p2 min-distance repulsion-strength)
   (setq dist (point-distance p1 p2))
@@ -94,9 +130,9 @@
 ;; Function to apply force-directed placement
 (defun c:ACAD-MTEXT-FORCE-PLACE (/ ss ent obj mtextData count iterations bbox-ent bbox)
   ;; Initialize parameters
-  (setq iterations 100
-        repulsion-strength 15.0
-        attraction-strength 5.0
+  (setq iterations 10
+        repulsion-strength 5.0
+        attraction-strength 3.0
         damping 0.9
         min-distance 5.0)
   
@@ -220,8 +256,13 @@
                                (caddr current-pos))))
           )
           
-          ;; Constrain new position to bounding box
-          (setq new-pos (constrain-to-bbox new-pos bbox))
+          ;; Calculate safe movement that stays within bounds
+          (setq safe-move (calculate-safe-move current-pos new-pos bbox))
+          
+          ;; Apply safe movement
+          (setq new-pos (list (+ (car current-pos) (car safe-move))
+                             (+ (cadr current-pos) (cadr safe-move))
+                             (caddr current-pos)))
           
           ;; Only move if there's a significant force and new position is different
           (if (and (not (= direction "none")) 
@@ -234,7 +275,8 @@
               ;; Print debug information
               (princ (strcat "\nMoved label " (vl-princ-to-string ent) 
                             " " direction " by " 
-                            (rtos move-distance) " units"))
+                            (rtos (sqrt (+ (expt (car safe-move) 2) (expt (cadr safe-move) 2))) 2 2)
+                            " units"))
             )
           )
           
