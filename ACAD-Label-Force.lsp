@@ -127,177 +127,158 @@
   )
 )
 
-;; Function to apply force-directed placement
-(defun c:ACAD-MTEXT-FORCE-PLACE (/ ss ent obj mtextData count iterations bbox-ent bbox)
-  ;; Initialize parameters
-  (setq iterations 10
-        repulsion-strength 5.0
-        attraction-strength 3.0
-        damping 0.9
-        min-distance 5.0)
-  
-  ;; Initialize ActiveX
-  (vl-load-com)
+;; Function to create a leader line between two points
+(defun create-leader (start-pt end-pt / leader)
+  (setq leader (entmakex (list
+    (cons 0 "LINE")
+    (cons 8 "0")  ; Layer
+    (cons 10 start-pt)
+    (cons 11 end-pt)
+    (cons 62 1)   ; Color (red)
+    (cons 6 "DASHED")  ; Linetype
+    (cons 48 0.5) ; Linetype scale
+  )))
+  leader
+)
+
+;; Main function for force-directed placement
+(defun c:ACAD-MTEXT-FORCE-PLACE ()
+  (setvar "CMDECHO" 0)
+  (setvar "OSMODE" 0)
   
   ;; Get bounding box from user
-  (princ "\nSelect the bounding box polyline: ")
-  (if (setq bbox-ent (entsel))
+  (setq bbox-result (entsel "\nSelect the bounding box polyline: "))
+  (if (not bbox-result)
     (progn
-      (setq bbox-ent (car bbox-ent))
-      (if (= (cdr (assoc 0 (entget bbox-ent))) "LWPOLYLINE")
-        (setq bbox (get-bbox-from-polyline bbox-ent))
-        (progn
-          (princ "\nError: Please select a polyline.")
-          (exit)
-        )
-      )
-    )
-    (progn
-      (princ "\nNo bounding box selected.")
+      (princ "\nNo polyline selected.")
       (exit)
     )
   )
   
-  (if (setq ss (ssget "_X" '((0 . "MTEXT"))))
+  (setq bbox-ent (car bbox-result))
+  (if (not (= "LWPOLYLINE" (cdr (assoc 0 (entget bbox-ent)))))
     (progn
-      (setq mtextData '())
-      (setq count 0)
-
-      ;; Collect all MTEXT data
-      (repeat (setq count (sslength ss))
-        (setq ent (ssname ss (setq count (1- count))))
-        (if (and ent (not (null ent)))
+      (princ "\nPlease select a polyline.")
+      (exit)
+    )
+  )
+  
+  ;; Get bounding box coordinates
+  (setq bbox-coords (get-bbox-from-polyline bbox-ent))
+  (setq bbox-min (car bbox-coords))
+  (setq bbox-max (cadr bbox-coords))
+  
+  ;; Initialize parameters
+  (setq iterations 100)
+  (setq repulsion-strength 100.0)
+  (setq attraction-strength 10.0)
+  (setq damping 0.9)
+  (setq min-distance 5.0)
+  
+  ;; Collect all MTEXT entities
+  (setq mtext-list nil)
+  (setq ss (ssget "X" '((0 . "MTEXT"))))
+  (if ss
+    (progn
+      (setq i 0)
+      (repeat (sslength ss)
+        (setq ent (ssname ss i))
+        (setq ent-data (entget ent))
+        (setq mtext-list (cons (list
+          ent
+          (cdr (assoc 10 ent-data))  ; Insertion point
+          (cdr (assoc 42 ent-data))  ; Width
+          (cdr (assoc 43 ent-data))  ; Height
+          (list 0.0 0.0)  ; Velocity
+          (cdr (assoc 10 ent-data))  ; Original position
+        ) mtext-list))
+        (setq i (1+ i))
+      )
+    )
+  )
+  
+  (princ (strcat "\nProcessing " (itoa (length mtext-list)) " MTEXT labels."))
+  
+  ;; Main iteration loop
+  (repeat iterations
+    ;; Calculate forces for each label
+    (foreach label mtext-list
+      (setq forces (list 0.0 0.0))
+      (setq pos (cadr label))
+      (setq vel (nth 4 label))
+      
+      ;; Calculate repulsive forces from other labels
+      (foreach other-label mtext-list
+        (if (/= (car label) (car other-label))
           (progn
-            (setq entdata (entget ent))
-            (if entdata
-              (setq mtextData (cons (list ent entdata) mtextData))
-            )
-          )
-        )
-      )
-
-      (print (strcat "\nProcessing " (itoa (length mtextData)) " MTEXT labels."))
-      
-      ;; Store original positions
-      (setq original-positions '())
-      (foreach label-data mtextData
-        (setq entdata (cadr label-data))
-        (setq original-positions (cons (cdr (assoc 10 entdata)) original-positions))
-      )
-      
-      ;; Main iteration loop
-      (repeat iterations
-        (setq forces '())
-        
-        ;; Calculate forces for each label
-        (foreach label-data mtextData
-          (setq entdata (cadr label-data)
-                current-pos (cdr (assoc 10 entdata))
-                net-force '(0.0 0.0))
-          
-          ;; Calculate repulsive forces from other labels
-          (foreach other-data mtextData
-            (if (not (eq (car label-data) (car other-data)))
+            (setq other-pos (cadr other-label))
+            (setq dist (point-distance pos other-pos))
+            (if (< dist min-distance)
               (progn
-                (setq other-pos (cdr (assoc 10 (cadr other-data))))
-                (setq repulsion (calculate-repulsion current-pos other-pos min-distance repulsion-strength))
-                (setq net-force (list (+ (car net-force) (car repulsion))
-                                    (+ (cadr net-force) (cadr repulsion))))
+                (setq repulsion (calculate-repulsion pos other-pos dist))
+                (setq forces (list
+                  (+ (car forces) (car repulsion))
+                  (+ (cadr forces) (cadr repulsion))
+                ))
               )
             )
           )
-          
-          ;; Calculate attractive force to original position
-          (setq original-pos (nth (vl-position label-data mtextData) original-positions))
-          (setq attraction (calculate-attraction current-pos original-pos attraction-strength))
-          (setq net-force (list (+ (car net-force) (car attraction))
-                               (+ (cadr net-force) (cadr attraction))))
-          
-          ;; Apply damping
-          (setq net-force (list (* (car net-force) damping)
-                               (* (cadr net-force) damping)))
-          
-          (setq forces (cons net-force forces))
         )
-        
-        ;; Update positions
-        (setq new-mtextData '())
-        (foreach label-data mtextData
-          (setq ent (car label-data)
-                entdata (cadr label-data)
-                current-pos (cdr (assoc 10 entdata))
-                force (nth (vl-position label-data mtextData) forces))
-          
-          ;; Get direction of strongest force
-          (setq direction (get-force-direction force))
-          
-          ;; Calculate movement distance based on force magnitude
-          (setq force-magnitude (sqrt (+ (expt (car force) 2) (expt (cadr force) 2))))
-          (setq move-distance (min force-magnitude 5.0))  ; Cap movement at 5 units
-          
-          ;; Calculate new position based on direction
-          (setq new-pos current-pos)
-          (cond
-            ((= direction "left")
-             (setq new-pos (list (- (car current-pos) move-distance)
-                               (cadr current-pos)
-                               (caddr current-pos))))
-            ((= direction "right")
-             (setq new-pos (list (+ (car current-pos) move-distance)
-                               (cadr current-pos)
-                               (caddr current-pos))))
-            ((= direction "up")
-             (setq new-pos (list (car current-pos)
-                               (+ (cadr current-pos) move-distance)
-                               (caddr current-pos))))
-            ((= direction "down")
-             (setq new-pos (list (car current-pos)
-                               (- (cadr current-pos) move-distance)
-                               (caddr current-pos))))
-          )
-          
-          ;; Calculate safe movement that stays within bounds
-          (setq safe-move (calculate-safe-move current-pos new-pos bbox))
-          
-          ;; Apply safe movement
-          (setq new-pos (list (+ (car current-pos) (car safe-move))
-                             (+ (cadr current-pos) (cadr safe-move))
-                             (caddr current-pos)))
-          
-          ;; Only move if there's a significant force and new position is different
-          (if (and (not (= direction "none")) 
-                   (> move-distance 0.1)
-                   (not (equal current-pos new-pos 0.001)))
-            (progn
-              ;; Move the label
-              (command "._move" ent "" current-pos new-pos)
-              
-              ;; Print debug information
-              (princ (strcat "\nMoved label " (vl-princ-to-string ent) 
-                            " " direction " by " 
-                            (rtos (sqrt (+ (expt (car safe-move) 2) (expt (cadr safe-move) 2))) 2 2)
-                            " units"))
-            )
-          )
-          
-          ;; Update entity data
-          (setq new-entdata (subst (cons 10 new-pos) (assoc 10 entdata) entdata))
-          (setq new-mtextData (cons (list ent new-entdata) new-mtextData))
-        )
-        
-        (setq mtextData new-mtextData)
       )
-
-      (print "\nForce-directed placement completed.")
+      
+      ;; Calculate attractive force to original position
+      (setq orig-pos (nth 5 label))
+      (setq attraction (calculate-attraction pos orig-pos attraction-strength))
+      (setq forces (list
+        (+ (car forces) (car attraction))
+        (+ (cadr forces) (cadr attraction))
+      ))
+      
+      ;; Update velocity and position
+      (setq new-vel (list
+        (* damping (+ (car vel) (car forces)))
+        (* damping (+ (cadr vel) (cadr forces)))
+      ))
+      (setq new-pos (list
+        (+ (car pos) (car new-vel))
+        (+ (cadr pos) (cadr new-vel))
+      ))
+      
+      ;; Constrain to bounding box
+      (setq new-pos (constrain-to-bbox new-pos bbox-min bbox-max))
+      
+      ;; Update label data
+      (setq label (list
+        (car label)
+        new-pos
+        (caddr label)
+        (cadddr label)
+        new-vel
+        (nth 5 label)
+      ))
     )
-    (print "\nNo MTEXT objects found in the drawing.")
   )
+  
+  ;; Move labels to their final positions and create leaders
+  (foreach label mtext-list
+    (setq ent (car label))
+    (setq new-pos (cadr label))
+    (setq orig-pos (nth 5 label))
+    
+    ;; Move the label
+    (setq ent-data (entget ent))
+    (setq ent-data (subst (cons 10 new-pos) (assoc 10 ent-data) ent-data))
+    (entmod ent-data)
+    
+    ;; Create leader from original position to new position
+    (create-leader orig-pos new-pos)
+  )
+  
+  (princ "\nForce-directed placement completed.")
+  (setvar "CMDECHO" 1)
+  (setvar "OSMODE" 1)
   (princ)
 )
-
-;; Load the function
-(princ "\nAutoCAD MTEXT Force-Directed Label Placement loaded. Type ACAD-MTEXT-FORCE-PLACE to run.")
-(princ)
 
 ;;; AutoCAD Label Overlap Detector (MTEXT) - Greedy Label Placement
 ;;; This script places labels using a greedy algorithm to minimize overlaps
@@ -328,18 +309,18 @@
         original-pos current-pos
         width (cdr (assoc 41 (cadr label-data)))
         height (cdr (assoc 43 (cadr label-data)))
-        step-size (min width height))  ; Use smaller dimension as step size
+        step-size (min width height 2.0))  ; Smaller initial step size
   
   ;; Try positions in expanding squares around original position
   (setq found nil
-        max-steps 10)  ; Limit search radius
+        max-steps 20)  ; Increased search radius
   
   (repeat max-steps
     (setq step-count 0)
-    (while (and (not found) (< step-count 8))
+    (while (and (not found) (< step-count 16))  ; More directions to try
       (setq test-pos current-pos)
       
-      ;; Try different directions
+      ;; Try different directions with more granular angles
       (cond
         ((= step-count 0)  ; Right
          (setq test-pos (list (+ (car current-pos) step-size)
@@ -373,11 +354,44 @@
          (setq test-pos (list (+ (car current-pos) step-size)
                              (- (cadr current-pos) step-size)
                              (caddr current-pos))))
+        ((= step-count 8)  ; Right-Up
+         (setq test-pos (list (+ (car current-pos) step-size)
+                             (+ (cadr current-pos) (* step-size 0.5))
+                             (caddr current-pos))))
+        ((= step-count 9)  ; Right-Down
+         (setq test-pos (list (+ (car current-pos) step-size)
+                             (- (cadr current-pos) (* step-size 0.5))
+                             (caddr current-pos))))
+        ((= step-count 10) ; Left-Up
+         (setq test-pos (list (- (car current-pos) step-size)
+                             (+ (cadr current-pos) (* step-size 0.5))
+                             (caddr current-pos))))
+        ((= step-count 11) ; Left-Down
+         (setq test-pos (list (- (car current-pos) step-size)
+                             (- (cadr current-pos) (* step-size 0.5))
+                             (caddr current-pos))))
+        ((= step-count 12) ; Up-Right
+         (setq test-pos (list (+ (car current-pos) (* step-size 0.5))
+                             (+ (cadr current-pos) step-size)
+                             (caddr current-pos))))
+        ((= step-count 13) ; Up-Left
+         (setq test-pos (list (- (car current-pos) (* step-size 0.5))
+                             (+ (cadr current-pos) step-size)
+                             (caddr current-pos))))
+        ((= step-count 14) ; Down-Right
+         (setq test-pos (list (+ (car current-pos) (* step-size 0.5))
+                             (- (cadr current-pos) step-size)
+                             (caddr current-pos))))
+        ((= step-count 15) ; Down-Left
+         (setq test-pos (list (- (car current-pos) (* step-size 0.5))
+                             (- (cadr current-pos) step-size)
+                             (caddr current-pos))))
       )
       
-      ;; Check if position is valid
+      ;; Check if position is valid and has minimum distance from other labels
       (if (and (point-in-bbox test-pos bbox)
-               (not (has-overlaps test-pos label-data mtextData)))
+               (not (has-overlaps test-pos label-data mtextData))
+               (has-minimum-distance test-pos label-data mtextData))
         (setq found test-pos))
       
       (setq step-count (1+ step-count))
@@ -385,10 +399,22 @@
     
     (if found
       (setq max-steps 0)  ; Exit loop if position found
-      (setq step-size (* step-size 1.5)))  ; Increase step size for next iteration
+      (setq step-size (* step-size 1.2)))  ; Smaller step size increase
   )
   
   found
+)
+
+;; Function to check if a position has minimum distance from other labels
+(defun has-minimum-distance (pos label-data mtextData / min-dist)
+  (setq min-dist 2.0)  ; Minimum distance between labels
+  
+  (foreach other-data mtextData
+    (if (and (not (eq (car label-data) (car other-data)))
+             (setq other-pos (cdr (assoc 10 (cadr other-data))))
+             (< (point-distance pos other-pos) min-dist))
+      (return nil)))
+  t
 )
 
 ;; Function to check if a position has overlaps
@@ -432,14 +458,18 @@
       (setq mtextData '())
       (setq count 0)
 
-      ;; Collect all MTEXT data
+      ;; Collect all MTEXT data and store original positions
       (repeat (setq count (sslength ss))
         (setq ent (ssname ss (setq count (1- count))))
         (if (and ent (not (null ent)))
           (progn
             (setq entdata (entget ent))
             (if entdata
-              (setq mtextData (cons (list ent entdata) mtextData))
+              (setq mtextData (cons (list 
+                ent 
+                entdata 
+                (cdr (assoc 10 entdata)))  ; Store original position
+                mtextData))
             )
           )
         )
@@ -455,7 +485,8 @@
       (foreach label-data sorted-labels
         (setq ent (car label-data)
               entdata (cadr label-data)
-              current-pos (cdr (assoc 10 entdata)))
+              current-pos (cdr (assoc 10 entdata))
+              original-pos (caddr label-data))  ; Get original position
         
         ;; Count overlaps for this label
         (setq overlap-count (count-label-overlaps label-data mtextData))
@@ -470,6 +501,9 @@
                 (command "._move" ent "" current-pos new-pos)
                 (setq processed-count (1+ processed-count))
                 
+                ;; Create leader from original position to new position
+                (create-leader original-pos new-pos)
+                
                 ;; Print debug information
                 (princ (strcat "\nMoved label " (vl-princ-to-string ent) 
                               " to reduce " (itoa overlap-count) " overlaps"))
@@ -483,7 +517,7 @@
         
         ;; Update entity data
         (setq new-entdata (subst (cons 10 new-pos) (assoc 10 entdata) entdata))
-        (setq mtextData (subst (list ent new-entdata) label-data mtextData))
+        (setq mtextData (subst (list ent new-entdata original-pos) label-data mtextData))
       )
 
       (print (strcat "\nGreedy placement completed. Processed " 
@@ -502,7 +536,7 @@
   (foreach label-data mtextData
     (setq size (get-label-size (cadr label-data))
           overlaps (count-label-overlaps label-data mtextData)
-          score (+ (* size 0.7) (* overlaps 0.3)))  ; Weight size more than overlaps
+          score (+ (* size 0.3) (* overlaps 0.7)))  ; Weight overlaps more than size
     (setq label-scores (cons (list label-data score) label-scores)))
   
   ;; Sort by score (highest first)
