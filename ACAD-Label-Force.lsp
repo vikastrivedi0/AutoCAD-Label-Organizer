@@ -392,14 +392,15 @@
 )
 
 ;; Function to check if a position has overlaps
-(defun has-overlaps (pos label-data mtextData / test-bbox)
-  (setq test-bbox (get-expanded-bbox (subst (cons 10 pos) (assoc 10 (cadr label-data)) (cadr label-data))))
+(defun has-overlaps (pos label-data mtextData / test-bbox has-overlap)
+  (setq has-overlap nil
+        test-bbox (get-expanded-bbox (subst (cons 10 pos) (assoc 10 (cadr label-data)) (cadr label-data))))
   (foreach other-data mtextData
     (if (and (not (eq (car label-data) (car other-data)))
              (setq other-bbox (get-expanded-bbox (cadr other-data)))
              (bbox-overlap test-bbox other-bbox))
-      (setq has-overlaps t)))
-  has-overlaps
+      (setq has-overlap t)))
+  has-overlap
 )
 
 ;; Function to apply greedy placement
