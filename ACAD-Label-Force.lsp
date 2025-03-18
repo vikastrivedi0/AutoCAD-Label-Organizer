@@ -27,6 +27,19 @@
         (* attraction-strength (- (cadr original) (cadr current))))
 )
 
+;; Function to get direction of force
+(defun get-force-direction (force)
+  (setq x-force (abs (car force))
+        y-force (abs (cadr force)))
+  (cond
+    ((> x-force y-force)  ; Stronger horizontal force
+     (if (> (car force) 0) "right" "left"))
+    ((> y-force x-force)  ; Stronger vertical force
+     (if (> (cadr force) 0) "up" "down"))
+    (t "none")  ; Equal forces or very small
+  )
+)
+
 ;; Function to apply force-directed placement
 (defun c:ACAD-MTEXT-FORCE-PLACE (/ ss ent obj mtextData count iterations)
   ;; Initialize parameters
@@ -109,13 +122,46 @@
                 current-pos (cdr (assoc 10 entdata))
                 force (nth (vl-position label-data mtextData) forces))
           
-          ;; Calculate new position
-          (setq new-pos (list (+ (car current-pos) (car force))
-                             (+ (cadr current-pos) (cadr force))
-                             (caddr current-pos)))
+          ;; Get direction of strongest force
+          (setq direction (get-force-direction force))
           
-          ;; Move the label
-          (command "._move" ent "" current-pos new-pos)
+          ;; Calculate movement distance based on force magnitude
+          (setq force-magnitude (sqrt (+ (expt (car force) 2) (expt (cadr force) 2))))
+          (setq move-distance (min force-magnitude 5.0))  ; Cap movement at 5 units
+          
+          ;; Calculate new position based on direction
+          (setq new-pos current-pos)
+          (cond
+            ((= direction "left")
+             (setq new-pos (list (- (car current-pos) move-distance)
+                               (cadr current-pos)
+                               (caddr current-pos))))
+            ((= direction "right")
+             (setq new-pos (list (+ (car current-pos) move-distance)
+                               (cadr current-pos)
+                               (caddr current-pos))))
+            ((= direction "up")
+             (setq new-pos (list (car current-pos)
+                               (+ (cadr current-pos) move-distance)
+                               (caddr current-pos))))
+            ((= direction "down")
+             (setq new-pos (list (car current-pos)
+                               (- (cadr current-pos) move-distance)
+                               (caddr current-pos))))
+          )
+          
+          ;; Only move if there's a significant force
+          (if (and (not (= direction "none")) (> move-distance 0.1))
+            (progn
+              ;; Move the label
+              (command "._move" ent "" current-pos new-pos)
+              
+              ;; Print debug information
+              (princ (strcat "\nMoved label " (vl-princ-to-string ent) 
+                            " " direction " by " 
+                            (rtos move-distance) " units"))
+            )
+          )
           
           ;; Update entity data
           (setq new-entdata (subst (cons 10 new-pos) (assoc 10 entdata) entdata))
