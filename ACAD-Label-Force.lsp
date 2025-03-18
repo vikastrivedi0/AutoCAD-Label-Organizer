@@ -512,6 +512,43 @@
   (mapcar 'car sorted-scores)
 )
 
+;; Function to get expanded bounding box for an MTEXT entity
+(defun get-expanded-bbox (entdata / insert-pt width height)
+  (setq insert-pt (cdr (assoc 10 entdata))
+        width (cdr (assoc 41 entdata))
+        height (cdr (assoc 43 entdata)))
+  
+  ;; Calculate corners of bounding box
+  (list
+    ;; Min point (bottom-left)
+    (list (- (car insert-pt) (/ width 2))
+          (- (cadr insert-pt) (/ height 2))
+          (caddr insert-pt))
+    ;; Max point (top-right)
+    (list (+ (car insert-pt) (/ width 2))
+          (+ (cadr insert-pt) (/ height 2))
+          (caddr insert-pt))
+  )
+)
+
+;; Function to check if two bounding boxes overlap
+(defun bbox-overlap (bbox1 bbox2 / min1 max1 min2 max2)
+  (setq min1 (car bbox1)
+        max1 (cadr bbox1)
+        min2 (car bbox2)
+        max2 (cadr bbox2))
+  
+  ;; Check for overlap in both X and Y directions
+  (and
+    ;; X overlap
+    (<= (car min1) (car max2))
+    (>= (car max1) (car min2))
+    ;; Y overlap
+    (<= (cadr min1) (cadr max2))
+    (>= (cadr max1) (cadr min2))
+  )
+)
+
 ;; Load the function
 (princ "\nAutoCAD MTEXT Greedy Label Placement loaded. Type ACAD-MTEXT-GREEDY-PLACE to run.")
 (princ) 
