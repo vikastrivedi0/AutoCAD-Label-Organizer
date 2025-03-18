@@ -297,4 +297,221 @@
 
 ;; Load the function
 (princ "\nAutoCAD MTEXT Force-Directed Label Placement loaded. Type ACAD-MTEXT-FORCE-PLACE to run.")
+(princ)
+
+;;; AutoCAD Label Overlap Detector (MTEXT) - Greedy Label Placement
+;;; This script places labels using a greedy algorithm to minimize overlaps
+;;; Usage: Load the script and run the command ACAD-MTEXT-GREEDY-PLACE
+
+;; Function to calculate label size (width * height)
+(defun get-label-size (entdata)
+  (setq width (cdr (assoc 41 entdata))
+        height (cdr (assoc 43 entdata)))
+  (* width height)
+)
+
+;; Function to count overlaps for a label
+(defun count-label-overlaps (label-data mtextData / count)
+  (setq count 0)
+  (foreach other-data mtextData
+    (if (and (not (eq (car label-data) (car other-data)))
+             (setq bbox1 (get-expanded-bbox (cadr label-data)))
+             (setq bbox2 (get-expanded-bbox (cadr other-data)))
+             (bbox-overlap bbox1 bbox2))
+      (setq count (1+ count))))
+  count
+)
+
+;; Function to find nearest non-overlapping position
+(defun find-nearest-position (label-data mtextData bbox / current-pos original-pos width height step-size)
+  (setq current-pos (cdr (assoc 10 (cadr label-data)))
+        original-pos current-pos
+        width (cdr (assoc 41 (cadr label-data)))
+        height (cdr (assoc 43 (cadr label-data)))
+        step-size (min width height))  ; Use smaller dimension as step size
+  
+  ;; Try positions in expanding squares around original position
+  (setq found nil
+        max-steps 10)  ; Limit search radius
+  
+  (repeat max-steps
+    (setq step-count 0)
+    (while (and (not found) (< step-count 8))
+      (setq test-pos current-pos)
+      
+      ;; Try different directions
+      (cond
+        ((= step-count 0)  ; Right
+         (setq test-pos (list (+ (car current-pos) step-size)
+                             (cadr current-pos)
+                             (caddr current-pos))))
+        ((= step-count 1)  ; Up
+         (setq test-pos (list (car current-pos)
+                             (+ (cadr current-pos) step-size)
+                             (caddr current-pos))))
+        ((= step-count 2)  ; Left
+         (setq test-pos (list (- (car current-pos) step-size)
+                             (cadr current-pos)
+                             (caddr current-pos))))
+        ((= step-count 3)  ; Down
+         (setq test-pos (list (car current-pos)
+                             (- (cadr current-pos) step-size)
+                             (caddr current-pos))))
+        ((= step-count 4)  ; Up-Right
+         (setq test-pos (list (+ (car current-pos) step-size)
+                             (+ (cadr current-pos) step-size)
+                             (caddr current-pos))))
+        ((= step-count 5)  ; Up-Left
+         (setq test-pos (list (- (car current-pos) step-size)
+                             (+ (cadr current-pos) step-size)
+                             (caddr current-pos))))
+        ((= step-count 6)  ; Down-Left
+         (setq test-pos (list (- (car current-pos) step-size)
+                             (- (cadr current-pos) step-size)
+                             (caddr current-pos))))
+        ((= step-count 7)  ; Down-Right
+         (setq test-pos (list (+ (car current-pos) step-size)
+                             (- (cadr current-pos) step-size)
+                             (caddr current-pos))))
+      )
+      
+      ;; Check if position is valid
+      (if (and (point-in-bbox test-pos bbox)
+               (not (has-overlaps test-pos label-data mtextData)))
+        (setq found test-pos))
+      
+      (setq step-count (1+ step-count))
+    )
+    
+    (if found
+      (setq max-steps 0)  ; Exit loop if position found
+      (setq step-size (* step-size 1.5)))  ; Increase step size for next iteration
+  )
+  
+  found
+)
+
+;; Function to check if a position has overlaps
+(defun has-overlaps (pos label-data mtextData / test-bbox)
+  (setq test-bbox (get-expanded-bbox (subst (cons 10 pos) (assoc 10 (cadr label-data)) (cadr label-data))))
+  (foreach other-data mtextData
+    (if (and (not (eq (car label-data) (car other-data)))
+             (setq other-bbox (get-expanded-bbox (cadr other-data)))
+             (bbox-overlap test-bbox other-bbox))
+      (setq has-overlaps t)))
+  has-overlaps
+)
+
+;; Function to apply greedy placement
+(defun c:ACAD-MTEXT-GREEDY-PLACE (/ ss ent obj mtextData count bbox-ent bbox)
+  ;; Initialize ActiveX
+  (vl-load-com)
+  
+  ;; Get bounding box from user
+  (princ "\nSelect the bounding box polyline: ")
+  (if (setq bbox-ent (entsel))
+    (progn
+      (setq bbox-ent (car bbox-ent))
+      (if (= (cdr (assoc 0 (entget bbox-ent))) "LWPOLYLINE")
+        (setq bbox (get-bbox-from-polyline bbox-ent))
+        (progn
+          (princ "\nError: Please select a polyline.")
+          (exit)
+        )
+      )
+    )
+    (progn
+      (princ "\nNo bounding box selected.")
+      (exit)
+    )
+  )
+  
+  (if (setq ss (ssget "_X" '((0 . "MTEXT"))))
+    (progn
+      (setq mtextData '())
+      (setq count 0)
+
+      ;; Collect all MTEXT data
+      (repeat (setq count (sslength ss))
+        (setq ent (ssname ss (setq count (1- count))))
+        (if (and ent (not (null ent)))
+          (progn
+            (setq entdata (entget ent))
+            (if entdata
+              (setq mtextData (cons (list ent entdata) mtextData))
+            )
+          )
+        )
+      )
+
+      (print (strcat "\nProcessing " (itoa (length mtextData)) " MTEXT labels."))
+      
+      ;; Sort labels by size (largest first) and number of overlaps
+      (setq sorted-labels (sort-labels-by-priority mtextData))
+      
+      ;; Process each label in priority order
+      (setq processed-count 0)
+      (foreach label-data sorted-labels
+        (setq ent (car label-data)
+              entdata (cadr label-data)
+              current-pos (cdr (assoc 10 entdata)))
+        
+        ;; Count overlaps for this label
+        (setq overlap-count (count-label-overlaps label-data mtextData))
+        
+        ;; If label has overlaps, try to find a better position
+        (if (> overlap-count 0)
+          (progn
+            (setq new-pos (find-nearest-position label-data mtextData bbox))
+            (if new-pos
+              (progn
+                ;; Move the label
+                (command "._move" ent "" current-pos new-pos)
+                (setq processed-count (1+ processed-count))
+                
+                ;; Print debug information
+                (princ (strcat "\nMoved label " (vl-princ-to-string ent) 
+                              " to reduce " (itoa overlap-count) " overlaps"))
+              )
+              (princ (strcat "\nCould not find non-overlapping position for label " 
+                            (vl-princ-to-string ent)))
+            )
+          )
+          (princ (strcat "\nLabel " (vl-princ-to-string ent) " has no overlaps"))
+        )
+        
+        ;; Update entity data
+        (setq new-entdata (subst (cons 10 new-pos) (assoc 10 entdata) entdata))
+        (setq mtextData (subst (list ent new-entdata) label-data mtextData))
+      )
+
+      (print (strcat "\nGreedy placement completed. Processed " 
+                     (itoa processed-count) " labels."))
+    )
+    (print "\nNo MTEXT objects found in the drawing.")
+  )
+  (princ)
+)
+
+;; Function to sort labels by priority (size and overlaps)
+(defun sort-labels-by-priority (mtextData / label-scores)
+  (setq label-scores '())
+  
+  ;; Calculate priority score for each label
+  (foreach label-data mtextData
+    (setq size (get-label-size (cadr label-data))
+          overlaps (count-label-overlaps label-data mtextData)
+          score (+ (* size 0.7) (* overlaps 0.3)))  ; Weight size more than overlaps
+    (setq label-scores (cons (list label-data score) label-scores)))
+  
+  ;; Sort by score (highest first)
+  (setq sorted-scores (vl-sort label-scores 
+                              '(lambda (a b) (> (cadr a) (cadr b)))))
+  
+  ;; Return sorted labels
+  (mapcar 'car sorted-scores)
+)
+
+;; Load the function
+(princ "\nAutoCAD MTEXT Greedy Label Placement loaded. Type ACAD-MTEXT-GREEDY-PLACE to run.")
 (princ) 
