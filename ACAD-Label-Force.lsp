@@ -139,32 +139,34 @@
     )
   )
   
-  ;; Create leader using command
-  (command "._leader"
-          start-pt  ; Start point
-          end-pt    ; End point
-          ""        ; Complete the command
+  ;; Check if DASHED linetype exists
+  (if (not (tblsearch "LTYPE" "DASHED"))
+    (progn
+      (princ "\nDASHED linetype not found, using CONTINUOUS")
+      (setq leader (entmakex (list
+        (cons 0 "LINE")
+        (cons 8 "0")  ; Layer
+        (cons 10 start-pt)
+        (cons 11 end-pt)
+        (cons 62 1)   ; Color (red)
+        (cons 6 "CONTINUOUS")  ; Fallback to continuous
+        (cons 48 0.5) ; Linetype scale
+      )))
+    )
+    (setq leader (entmakex (list
+      (cons 0 "LINE")
+      (cons 8 "0")  ; Layer
+      (cons 10 start-pt)
+      (cons 11 end-pt)
+      (cons 62 1)   ; Color (red)
+      (cons 6 "DASHED")  ; Linetype
+      (cons 48 0.5) ; Linetype scale
+    )))
   )
   
-  ;; Get the last created entity (the leader)
-  (setq leader (entlast))
-  
-  ;; Modify leader properties
+  ;; Verify leader was created
   (if leader
-    (progn
-      (setq leader-data (entget leader))
-      ;; Modify leader properties
-      (setq leader-data
-        (append leader-data
-          (list
-            (cons 62 1)     ; Color (red)
-            (cons 8 "0")    ; Layer
-          )
-        )
-      )
-      (entmod leader-data)
-      (princ "\nLeader created successfully")
-    )
+    (princ "\nLeader created successfully")
     (princ "\nFailed to create leader")
   )
   
@@ -348,119 +350,24 @@
         original-pos current-pos
         width (cdr (assoc 41 (cadr label-data)))
         height (cdr (assoc 43 (cadr label-data)))
-        step-size (min width height 5.0))  ; Increased initial step size
+        step-size (min width height 8.0))  ; Increased initial step size
   
   ;; Try positions in expanding squares around original position
   (setq found nil
-        max-steps 30)  ; Increased search radius significantly
+        max-steps 50)  ; Significantly increased search radius
   
   (repeat max-steps
     (setq step-count 0)
-    (while (and (not found) (< step-count 24))  ; More directions to try (24 instead of 16)
-      (setq test-pos current-pos)
+    (while (and (not found) (< step-count 32))  ; More directions to try
+      (setq test-pos current-pos
+            angle (* step-count (/ (* 2 pi) 32.0)))  ; Divide circle into 32 parts
       
-      ;; Try different directions with more granular angles
-      (cond
-        ((= step-count 0)  ; Right
-         (setq test-pos (list (+ (car current-pos) step-size)
-                             (cadr current-pos)
-                             (caddr current-pos))))
-        ((= step-count 1)  ; Up
-         (setq test-pos (list (car current-pos)
-                             (+ (cadr current-pos) step-size)
-                             (caddr current-pos))))
-        ((= step-count 2)  ; Left
-         (setq test-pos (list (- (car current-pos) step-size)
-                             (cadr current-pos)
-                             (caddr current-pos))))
-        ((= step-count 3)  ; Down
-         (setq test-pos (list (car current-pos)
-                             (- (cadr current-pos) step-size)
-                             (caddr current-pos))))
-        ;; Original diagonal directions
-        ((= step-count 4)  ; Up-Right
-         (setq test-pos (list (+ (car current-pos) step-size)
-                             (+ (cadr current-pos) step-size)
-                             (caddr current-pos))))
-        ((= step-count 5)  ; Up-Left
-         (setq test-pos (list (- (car current-pos) step-size)
-                             (+ (cadr current-pos) step-size)
-                             (caddr current-pos))))
-        ((= step-count 6)  ; Down-Left
-         (setq test-pos (list (- (car current-pos) step-size)
-                             (- (cadr current-pos) step-size)
-                             (caddr current-pos))))
-        ((= step-count 7)  ; Down-Right
-         (setq test-pos (list (+ (car current-pos) step-size)
-                             (- (cadr current-pos) step-size)
-                             (caddr current-pos))))
-        ;; Additional diagonal directions with larger steps
-        ((= step-count 8)  ; Far Right-Up
-         (setq test-pos (list (+ (car current-pos) (* step-size 2))
-                             (+ (cadr current-pos) step-size)
-                             (caddr current-pos))))
-        ((= step-count 9)  ; Far Right-Down
-         (setq test-pos (list (+ (car current-pos) (* step-size 2))
-                             (- (cadr current-pos) step-size)
-                             (caddr current-pos))))
-        ((= step-count 10) ; Far Left-Up
-         (setq test-pos (list (- (car current-pos) (* step-size 2))
-                             (+ (cadr current-pos) step-size)
-                             (caddr current-pos))))
-        ((= step-count 11) ; Far Left-Down
-         (setq test-pos (list (- (car current-pos) (* step-size 2))
-                             (- (cadr current-pos) step-size)
-                             (caddr current-pos))))
-        ((= step-count 12) ; Far Up-Right
-         (setq test-pos (list (+ (car current-pos) step-size)
-                             (+ (cadr current-pos) (* step-size 2))
-                             (caddr current-pos))))
-        ((= step-count 13) ; Far Up-Left
-         (setq test-pos (list (- (car current-pos) step-size)
-                             (+ (cadr current-pos) (* step-size 2))
-                             (caddr current-pos))))
-        ((= step-count 14) ; Far Down-Right
-         (setq test-pos (list (+ (car current-pos) step-size)
-                             (- (cadr current-pos) (* step-size 2))
-                             (caddr current-pos))))
-        ((= step-count 15) ; Far Down-Left
-         (setq test-pos (list (- (car current-pos) step-size)
-                             (- (cadr current-pos) (* step-size 2))
-                             (caddr current-pos))))
-        ;; Additional directions with very large steps
-        ((= step-count 16) ; Very Far Right
-         (setq test-pos (list (+ (car current-pos) (* step-size 3))
-                             (cadr current-pos)
-                             (caddr current-pos))))
-        ((= step-count 17) ; Very Far Left
-         (setq test-pos (list (- (car current-pos) (* step-size 3))
-                             (cadr current-pos)
-                             (caddr current-pos))))
-        ((= step-count 18) ; Very Far Up
-         (setq test-pos (list (car current-pos)
-                             (+ (cadr current-pos) (* step-size 3))
-                             (caddr current-pos))))
-        ((= step-count 19) ; Very Far Down
-         (setq test-pos (list (car current-pos)
-                             (- (cadr current-pos) (* step-size 3))
-                             (caddr current-pos))))
-        ((= step-count 20) ; Very Far Up-Right
-         (setq test-pos (list (+ (car current-pos) (* step-size 2))
-                             (+ (cadr current-pos) (* step-size 2))
-                             (caddr current-pos))))
-        ((= step-count 21) ; Very Far Up-Left
-         (setq test-pos (list (- (car current-pos) (* step-size 2))
-                             (+ (cadr current-pos) (* step-size 2))
-                             (caddr current-pos))))
-        ((= step-count 22) ; Very Far Down-Right
-         (setq test-pos (list (+ (car current-pos) (* step-size 2))
-                             (- (cadr current-pos) (* step-size 2))
-                             (caddr current-pos))))
-        ((= step-count 23) ; Very Far Down-Left
-         (setq test-pos (list (- (car current-pos) (* step-size 2))
-                             (- (cadr current-pos) (* step-size 2))
-                             (caddr current-pos))))
-      )
+      ;; Calculate position using angle and current step size
+      (setq test-pos (list
+        (+ (car current-pos) (* step-size (cos angle)))
+        (+ (cadr current-pos) (* step-size (sin angle)))
+        (caddr current-pos)
+      ))
       
       ;; Check if position is valid and has minimum distance from other labels
       (if (and (point-in-bbox test-pos bbox)
@@ -473,7 +380,7 @@
     
     (if found
       (setq max-steps 0)  ; Exit loop if position found
-      (setq step-size (* step-size 1.5)))  ; Larger step size increase
+      (setq step-size (* step-size 1.2)))  ; Increase step size for next iteration
   )
   
   found
@@ -481,7 +388,7 @@
 
 ;; Function to check if a position has minimum distance from other labels
 (defun has-minimum-distance (pos label-data mtextData / min-dist)
-  (setq min-dist 5.0)  ; Increased minimum distance between labels
+  (setq min-dist 8.0)  ; Increased minimum distance between labels
   
   (foreach other-data mtextData
     (if (and (not (eq (car label-data) (car other-data)))
@@ -551,47 +458,58 @@
 
       (print (strcat "\nProcessing " (itoa (length mtextData)) " MTEXT labels."))
       
-      ;; Sort labels by size (largest first) and number of overlaps
-      (setq sorted-labels (sort-labels-by-priority mtextData))
-      
-      ;; Process each label in priority order
-      (setq processed-count 0)
-      (foreach label-data sorted-labels
-        (setq ent (car label-data)
-              entdata (cadr label-data)
-              current-pos (cdr (assoc 10 entdata))
-              original-pos (caddr label-data))  ; Get original position
+      ;; Sort labels by priority and process multiple passes
+      (setq max-passes 3)  ; Number of passes to try resolving conflicts
+      (repeat max-passes
+        (setq sorted-labels (sort-labels-by-priority mtextData))
+        (setq processed-count 0)
         
-        ;; Count overlaps for this label
-        (setq overlap-count (count-label-overlaps label-data mtextData))
-        
-        ;; If label has overlaps, try to find a better position
-        (if (> overlap-count 0)
-          (progn
-            (setq new-pos (find-nearest-position label-data mtextData bbox))
-            (if new-pos
-              (progn
-                ;; Move the label
-                (command "._move" ent "" current-pos new-pos)
-                (setq processed-count (1+ processed-count))
-                
-                ;; Create leader from original position to new position
-                (create-leader original-pos new-pos)
-                
-                ;; Print debug information
-                (princ (strcat "\nMoved label " (vl-princ-to-string ent) 
-                              " to reduce " (itoa overlap-count) " overlaps"))
+        ;; Process each label in priority order
+        (foreach label-data sorted-labels
+          (setq ent (car label-data)
+                entdata (cadr label-data)
+                current-pos (cdr (assoc 10 entdata))
+                original-pos (caddr label-data))
+          
+          ;; Count overlaps for this label
+          (setq overlap-count (count-label-overlaps label-data mtextData))
+          
+          ;; If label has overlaps, try to find a better position
+          (if (> overlap-count 0)
+            (progn
+              (setq new-pos (find-nearest-position label-data mtextData bbox))
+              (if new-pos
+                (progn
+                  ;; Move the label
+                  (command "._move" ent "" current-pos new-pos)
+                  (setq processed-count (1+ processed-count))
+                  
+                  ;; Create leader from original position to new position
+                  (create-leader original-pos new-pos)
+                  
+                  ;; Print debug information
+                  (princ (strcat "\nMoved label " (vl-princ-to-string ent) 
+                                " to reduce " (itoa overlap-count) " overlaps"))
+                )
+                (princ (strcat "\nCould not find non-overlapping position for label " 
+                              (vl-princ-to-string ent)))
               )
-              (princ (strcat "\nCould not find non-overlapping position for label " 
-                            (vl-princ-to-string ent)))
             )
           )
-          (princ (strcat "\nLabel " (vl-princ-to-string ent) " has no overlaps"))
+          
+          ;; Update entity data
+          (setq new-entdata (subst (cons 10 new-pos) (assoc 10 entdata) entdata))
+          (setq mtextData (subst (list ent new-entdata original-pos) label-data mtextData))
         )
         
-        ;; Update entity data
-        (setq new-entdata (subst (cons 10 new-pos) (assoc 10 entdata) entdata))
-        (setq mtextData (subst (list ent new-entdata original-pos) label-data mtextData))
+        ;; Check if all overlaps are resolved
+        (setq total-overlaps 0)
+        (foreach label-data mtextData
+          (setq total-overlaps (+ total-overlaps (count-label-overlaps label-data mtextData)))
+        )
+        (if (= total-overlaps 0)
+          (setq max-passes 0)  ; Exit if no more overlaps
+        )
       )
 
       (print (strcat "\nGreedy placement completed. Processed " 
@@ -610,7 +528,7 @@
   (foreach label-data mtextData
     (setq size (get-label-size (cadr label-data))
           overlaps (count-label-overlaps label-data mtextData)
-          score (+ (* size 0.2) (* overlaps 0.8)))  ; Weight overlaps even more than size
+          score (+ (* size 0.1) (* overlaps 0.9)))  ; Weight overlaps even more heavily
     (setq label-scores (cons (list label-data score) label-scores)))
   
   ;; Sort by score (highest first)
@@ -626,7 +544,7 @@
   (setq insert-pt (cdr (assoc 10 entdata))
         width (cdr (assoc 41 entdata))
         height (cdr (assoc 43 entdata))
-        margin 2.0)  ; Add margin around text for better overlap detection
+        margin 4.0)  ; Increased margin around text for better overlap detection
   
   ;; Calculate corners of bounding box with margin
   (list
